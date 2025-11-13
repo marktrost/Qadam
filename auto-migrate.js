@@ -33,8 +33,16 @@ async function runMigrations() {
     const migration3 = fs.readFileSync(path.join(__dirname, 'migrations', '20251022_add_quotes.sql'), 'utf8');
     await client.query(migration3);
     console.log('✅ Migration 3 complete');
-    
+    // Добавь после всех миграций
+    console.log('👑 Creating admin user...');
+    try {
+      await import('./create-admin-prod.js');
+      console.log('✅ Admin user created successfully');
+    } catch (error) {
+      console.log('⚠️ Admin creation:', error.message);
+    }
     console.log('🎉 All migrations completed successfully!');
+    
   } catch (error) {
     // Игнорируем ошибки "already exists" - значит миграции уже применены
     if (error.message.includes('already exists') || error.message.includes('duplicate')) {
