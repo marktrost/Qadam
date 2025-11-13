@@ -433,7 +433,27 @@ async function cleanupExpiredFiles() {
   
   // Run migrations before starting server
   await runMigrations();
-  
+  console.log('👑 Creating admin user...');
+  try {
+    const { hashPassword } = await import('./auth.js');
+    const existingAdmin = await storage.getUserByUsername('admin');
+    
+    if (!existingAdmin) {
+      const hashedPassword = await hashPassword('admin123');
+      await storage.createUser({
+        username: 'admin',
+        email: 'admin@example.com',
+        password: hashedPassword,
+        role: 'admin' // Добавь эту строку если нужна роль админа
+      });
+      console.log('✅ Admin user created successfully!');
+      console.log('🔑 Username: admin, Password: admin123');
+    } else {
+      console.log('⚠️ Admin user already exists');
+    }
+  } catch (error) {
+    console.log('⚠️ Admin creation:', error.message);
+  }
   // Start the HTTP server with WebSocket support
   // Bind to 0.0.0.0 for Render deployment (required for external access)
   const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
