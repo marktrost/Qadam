@@ -1,51 +1,41 @@
-// Updated mobile-test-navigation.tsx
+// mobile-test-navigation.tsx
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { StyleSheet, View, Text, Image } from 'react-native';
 
 const MobileTestNavigation = () => {
     return (
         <View style={styles.container}>
-            <Text style={styles.questionText}>Question text goes here</Text>
-            <View style={styles.answersContainer}>
-                {/* Answers with updated styles for text wrapping */}
-                <TouchableOpacity style={styles.answerButton}>
-                    <Text style={styles.answerText}>Answer option 1 goes here</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.answerButton}>
-                    <Text style={styles.answerText}>Answer option 2 goes here</Text>
-                </TouchableOpacity>
-            </View>
+            <Image style={styles.image} source={{ uri: 'image_url_here' }} />
+            <Text style={styles.text}>Test Navigation</Text>
         </View>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
-        minHeight: 'calc(100vh - 156px)', // Fix content overflow
-        paddingBottom: 'env(safe-area-inset-bottom)', // Add safe-area-inset-bottom support for iOS
-        padding: 0,
+        flex: 1,
+        paddingTop: 20,
+        paddingBottom: 20,
+        paddingHorizontal: 16,
+        // Safe area insets
+        backgroundColor: 'white',
     },
-    questionText: {
-        maxWidth: '100%',
-        wordBreak: 'break-word', // Add break-words class
+    image: {
+        width: '100%',
+        height: 200,
+        resizeMode: 'contain',
     },
-    answersContainer: {
-        paddingHorizontal: 12, // Optimize padding
-        paddingVertical: 8, // Optimize padding
+    text: {
+        fontSize: 16,
+        lineHeight: 24,
+        marginBottom: 10,
+        // Ensuring text wraps properly
     },
-    answerButton: {
-        width: 44,
+    touchableArea: {
         height: 44,
-        // Ensure all touch targets are 44px minimum
-    },
-    answerText: {
-        fontSize: 18,
-        lineHeight: 22,
-    },
-    radioButton: {
-        width: 44, // Increase radio buttons
-        height: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
 });
 
