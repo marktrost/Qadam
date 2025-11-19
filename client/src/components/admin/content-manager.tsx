@@ -1,4 +1,4 @@
-/**
+//**
  * ContentManager - Иерархическая структура контента
  * 
  * СТРУКТУРА:
@@ -15,7 +15,7 @@
  *                └─ Дисциплины внутри варианта (пример: "Математика", "Физика", "История Казахстана")
  * 
  *                   ❓ ВОПРОСЫ (Questions)
- *                      └─ Тестовые задания по предмету (текст вопроса + варианты ответов)
+ *                      └─ Тестовые задания по предмету (текст вопроса + варианты ответов + картинки)
  * 
  * НАВИГАЦИЯ: Блоки → Варианты → Предметы → Вопросы
  */
@@ -49,10 +49,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { ChevronRight, ChevronDown, Plus, Trash2, Edit, GripVertical, Calculator, Atom, Upload } from "lucide-react";
+import { ChevronRight, ChevronDown, Plus, Trash2, Edit, GripVertical, Calculator, Atom, Upload, Image } from "lucide-react";
 import type { Block, Variant, Subject, Question, Answer } from "@shared/schema";
-
-
 
 // Sortable Drag Handle Component
 // Компонент SortableCard с drag-and-drop логикой
@@ -85,6 +83,152 @@ function SortableCard({ id, children }: SortableCardProps) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// Image Upload Dialog Component
+function ImageUploadDialog({ 
+  question, 
+  open, 
+  onOpenChange 
+}: { 
+  question: Question; 
+  open: boolean; 
+  onOpenChange: (open: boolean) => void 
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [uploading, setUploading] = useState(false);
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({ title: "Ошибка", description: "Выберите изображение", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Ошибка", description: "Размер файла не должен превышать 5MB", variant: "destructive" });
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const response = await fetch('/api/upload/question-image', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Upload failed');
+      
+      const data = await response.json();
+      
+      // Обновляем вопрос с новым imageUrl
+      await apiRequest("PUT", `/api/questions/${question.id}`, {
+        ...question,
+        imageUrl: data.url
+      });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${question.subjectId}/questions`] });
+      toast({ title: "Успешно", description: "Картинка загружена" });
+      onOpenChange(false);
+    } catch (error) {
+      toast({ title: "Ошибка", description: "Не удалось загрузить картинку", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteImage = async () => {
+    try {
+      await apiRequest("PUT", `/api/questions/${question.id}`, {
+        ...question,
+        imageUrl: null
+      });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${question.subjectId}/questions`] });
+      toast({ title: "Успешно", description: "Картинка удалена" });
+      onOpenChange(false);
+    } catch (error) {
+      toast({ title: "Ошибка", description: "Не удалось удалить картинку", variant: "destructive" });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {question.imageUrl ? "Управление картинкой" : "Загрузка картинки"}
+          </DialogTitle>
+        </DialogHeader>
+        
+        {question.imageUrl ? (
+          <div className="space-y-4">
+            <img 
+              src={question.imageUrl} 
+              alt="Вопрос" 
+              className="w-full h-48 object-contain rounded-lg border"
+            />
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="flex-1"
+                onClick={handleDeleteImage}
+                disabled={uploading}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Удалить картинку
+              </Button>
+              <Label htmlFor={`replace-image-${question.id}`} className="flex-1">
+                <Button asChild variant="outline" className="w-full" disabled={uploading}>
+                  <span>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Заменить
+                  </span>
+                </Button>
+                <Input
+                  id={`replace-image-${question.id}`}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </Label>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Label htmlFor={`upload-image-${question.id}`} className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:bg-muted/50 transition-colors block">
+              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+              <div className="font-medium">Нажмите для выбора картинки</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                PNG, JPG, GIF до 5MB
+              </div>
+            </Label>
+            <Input
+              id={`upload-image-${question.id}`}
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+          </div>
+        )}
+        
+        {uploading && (
+          <div className="text-center text-sm text-muted-foreground">
+            Загрузка...
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -201,8 +345,6 @@ function VariantsView({ block, onSelectVariant }: VariantsViewProps) {
 
   return (
     <div className="space-y-6">
-
-
       {/* Add Variant Dialog */}
       <Dialog>
         <DialogTrigger asChild>
@@ -522,8 +664,6 @@ function SubjectsView({ variant, onSelectSubject }: SubjectsViewProps) {
 
   return (
     <div className="space-y-6">
-
-
       {/* Add Subject Buttons */}
       <div className="flex gap-2">
         <Dialog>
@@ -730,6 +870,8 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
   const [showAddAnswerDialog, setShowAddAnswerDialog] = useState(false);
   const [selectedQuestionForAnswer, setSelectedQuestionForAnswer] = useState<Question | null>(null);
   const [newAnswerText, setNewAnswerText] = useState("");
+  const [imageUploadDialogOpen, setImageUploadDialogOpen] = useState(false);
+  const [selectedQuestionForImage, setSelectedQuestionForImage] = useState<Question | null>(null);
 
   const { data: questions = [], isLoading } = useQuery({
     queryKey: [`/api/subjects/${subject.id}/questions`],
@@ -908,6 +1050,11 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     setNewAnswerText("");
   };
 
+  const handleImageUpload = (question: Question) => {
+    setSelectedQuestionForImage(question);
+    setImageUploadDialogOpen(true);
+  };
+
   const toggleQuestion = (questionId: string) => {
     const newExpanded = new Set(expandedQuestions);
     if (newExpanded.has(questionId)) {
@@ -1006,6 +1153,18 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
           {/* Кнопки действий - отдельная область */}
           <div className="flex gap-1 flex-shrink-0 pr-2">
             <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleImageUpload(question);
+              }}
+              title={question.imageUrl ? "Изменить картинку" : "Добавить картинку"}
+            >
+              <Image className="h-3 w-3" />
+            </Button>
+            <Button
               variant="destructive"
               size="sm"
               className="h-8 w-8 p-0"
@@ -1018,11 +1177,34 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
             >
               <Trash2 className="h-3 w-3" />
             </Button>
-              </div>
+          </div>
         </div>
         
         {isExpanded && (
           <div className="ml-6 space-y-2">
+            {/* Image preview */}
+            {question.imageUrl && (
+              <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                <img 
+                  src={question.imageUrl} 
+                  alt="Вопрос" 
+                  className="h-16 w-16 object-cover rounded border"
+                />
+                <div className="flex-1">
+                  <p className="text-xs text-muted-foreground">Картинка вопроса</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleImageUpload(question)}
+                    className="mt-1"
+                  >
+                    <Image className="h-3 w-3 mr-1" />
+                    Изменить
+                  </Button>
+                </div>
+              </div>
+            )}
+            
             {answers.length > 0 ? (
               <DndContext
                 sensors={answerSensors}
@@ -1074,8 +1256,6 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
 
   return (
     <div className="space-y-6">
-
-
       {/* Add Question Button */}
       <Button
         className="w-full"
@@ -1184,11 +1364,18 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Image Upload Dialog */}
+      {selectedQuestionForImage && (
+        <ImageUploadDialog
+          question={selectedQuestionForImage}
+          open={imageUploadDialogOpen}
+          onOpenChange={setImageUploadDialogOpen}
+        />
+      )}
     </div>
   );
 }
-
-
 
 // Sortable Answer Item Component for Questions View
 function QuestionSortableAnswerItem({
@@ -1424,6 +1611,20 @@ function QuestionEditor({ question, subject, onBack }: QuestionEditorProps) {
               </div>
             </div>
 
+            {/* Image section */}
+            {question.imageUrl && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Картинка вопроса</label>
+                <div className="mt-2">
+                  <img 
+                    src={question.imageUrl} 
+                    alt="Вопрос" 
+                    className="max-w-full h-48 object-contain rounded-lg border"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Answers Toggle */}
             <div className="border-t pt-4">
               <Button
@@ -1601,8 +1802,6 @@ function BlocksView({ onSelectBlock }: BlocksViewProps) {
 
   return (
     <div className="space-y-6">
-
-
       {/* Search */}
       <Input
         placeholder="Поиск блоков..."
