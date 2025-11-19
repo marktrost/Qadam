@@ -90,15 +90,22 @@ function SortableCard({ id, children }: SortableCardProps) {
 function ImageUploadDialog({ 
   question, 
   open, 
-  onOpenChange 
+  onOpenChange,
+  type = "question" // "question" | "solution"
 }: { 
   question: Question; 
   open: boolean; 
-  onOpenChange: (open: boolean) => void 
+  onOpenChange: (open: boolean) => void;
+  type?: "question" | "solution";
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [uploading, setUploading] = useState(false);
+
+  const isQuestionImage = type === "question";
+  const currentImageUrl = isQuestionImage ? question.imageUrl : question.solutionImageUrl;
+  const fieldName = isQuestionImage ? "imageUrl" : "solutionImageUrl";
+  const title = isQuestionImage ? "картинкой вопроса" : "картинкой решения";
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -129,17 +136,17 @@ function ImageUploadDialog({
       
       const data = await response.json();
       
-      // Обновляем вопрос с новым imageUrl
+      // Обновляем вопрос с новым imageUrl или solutionImageUrl
       await apiRequest("PUT", `/api/questions/${question.id}`, {
         ...question,
-        imageUrl: data.url
+        [fieldName]: data.url
       });
 
       queryClient.invalidateQueries({ queryKey: [`/api/subjects/${question.subjectId}/questions`] });
-      toast({ title: "Успешно", description: "Картинка загружена" });
+      toast({ title: "Успешно", description: `Картинка ${title} загружена` });
       onOpenChange(false);
     } catch (error) {
-      toast({ title: "Ошибка", description: "Не удалось загрузить картинку", variant: "destructive" });
+      toast({ title: "Ошибка", description: `Не удалось загрузить картинку ${title}`, variant: "destructive" });
     } finally {
       setUploading(false);
     }
@@ -149,14 +156,14 @@ function ImageUploadDialog({
     try {
       await apiRequest("PUT", `/api/questions/${question.id}`, {
         ...question,
-        imageUrl: null
+        [fieldName]: null
       });
 
       queryClient.invalidateQueries({ queryKey: [`/api/subjects/${question.subjectId}/questions`] });
-      toast({ title: "Успешно", description: "Картинка удалена" });
+      toast({ title: "Успешно", description: `Картинка ${title} удалена` });
       onOpenChange(false);
     } catch (error) {
-      toast({ title: "Ошибка", description: "Не удалось удалить картинку", variant: "destructive" });
+      toast({ title: "Ошибка", description: `Не удалось удалить картинку ${title}`, variant: "destructive" });
     }
   };
 
@@ -165,15 +172,15 @@ function ImageUploadDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {question.imageUrl ? "Управление картинкой" : "Загрузка картинки"}
+            {currentImageUrl ? `Управление ${title}` : `Загрузка ${title}`}
           </DialogTitle>
         </DialogHeader>
         
-        {question.imageUrl ? (
+        {currentImageUrl ? (
           <div className="space-y-4">
             <img 
-              src={question.imageUrl} 
-              alt="Вопрос" 
+              src={currentImageUrl} 
+              alt={title} 
               className="w-full h-48 object-contain rounded-lg border"
             />
             <div className="flex gap-2">
@@ -186,7 +193,7 @@ function ImageUploadDialog({
                 <Trash2 className="h-4 w-4 mr-2" />
                 Удалить картинку
               </Button>
-              <Label htmlFor={`replace-image-${question.id}`} className="flex-1">
+              <Label htmlFor={`replace-image-${question.id}-${type}`} className="flex-1">
                 <Button asChild variant="outline" className="w-full" disabled={uploading}>
                   <span>
                     <Upload className="h-4 w-4 mr-2" />
@@ -194,7 +201,7 @@ function ImageUploadDialog({
                   </span>
                 </Button>
                 <Input
-                  id={`replace-image-${question.id}`}
+                  id={`replace-image-${question.id}-${type}`}
                   type="file"
                   accept="image/*"
                   onChange={handleImageUpload}
@@ -205,15 +212,20 @@ function ImageUploadDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            <Label htmlFor={`upload-image-${question.id}`} className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:bg-muted/50 transition-colors block">
+            <Label htmlFor={`upload-image-${question.id}-${type}`} className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:bg-muted/50 transition-colors block">
               <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
               <div className="font-medium">Нажмите для выбора картинки</div>
               <div className="text-sm text-muted-foreground mt-1">
+                {isQuestionImage 
+                  ? "Эта картинка будет показана во время теста" 
+                  : "Эта картинка будет показана в результатах (решение)"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">
                 PNG, JPG, GIF до 5MB
               </div>
             </Label>
             <Input
-              id={`upload-image-${question.id}`}
+              id={`upload-image-${question.id}-${type}`}
               type="file"
               accept="image/*"
               onChange={handleImageUpload}
@@ -872,6 +884,7 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
   const [newAnswerText, setNewAnswerText] = useState("");
   const [imageUploadDialogOpen, setImageUploadDialogOpen] = useState(false);
   const [selectedQuestionForImage, setSelectedQuestionForImage] = useState<Question | null>(null);
+  const [imageUploadDialogType, setImageUploadDialogType] = useState<"question" | "solution">("question");
 
   const { data: questions = [], isLoading } = useQuery({
     queryKey: [`/api/subjects/${subject.id}/questions`],
@@ -1050,8 +1063,9 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     setNewAnswerText("");
   };
 
-  const handleImageUpload = (question: Question) => {
+  const handleImageUpload = (question: Question, type: "question" | "solution") => {
     setSelectedQuestionForImage(question);
+    setImageUploadDialogType(type);
     setImageUploadDialogOpen(true);
   };
 
@@ -1158,9 +1172,9 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
               className="h-8 w-8 p-0"
               onClick={(e) => {
                 e.stopPropagation();
-                handleImageUpload(question);
+                handleImageUpload(question, "question");
               }}
-              title={question.imageUrl ? "Изменить картинку" : "Добавить картинку"}
+              title="Управление картинками"
             >
               <Image className="h-3 w-3" />
             </Button>
@@ -1182,28 +1196,90 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
         
         {isExpanded && (
           <div className="ml-6 space-y-2">
-            {/* Image preview */}
-            {question.imageUrl && (
+            {/* Image previews */}
+            <div className="space-y-3">
+              {/* Question Image */}
               <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
-                <img 
-                  src={question.imageUrl} 
-                  alt="Вопрос" 
-                  className="h-16 w-16 object-cover rounded border"
-                />
-                <div className="flex-1">
-                  <p className="text-xs text-muted-foreground">Картинка вопроса</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleImageUpload(question)}
-                    className="mt-1"
-                  >
-                    <Image className="h-3 w-3 mr-1" />
-                    Изменить
-                  </Button>
-                </div>
+                {question.imageUrl ? (
+                  <>
+                    <img 
+                      src={question.imageUrl} 
+                      alt="Вопрос" 
+                      className="h-16 w-16 object-cover rounded border"
+                    />
+                    <div className="flex-1">
+                      <p className="text-xs text-muted-foreground">Картинка вопроса</p>
+                      <p className="text-xs text-green-600">Показывается во время теста</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleImageUpload(question, "question")}
+                        className="mt-1"
+                      >
+                        <Image className="h-3 w-3 mr-1" />
+                        Изменить
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Картинка вопроса</p>
+                      <p className="text-xs text-muted-foreground">Показывается во время теста</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleImageUpload(question, "question")}
+                    >
+                      <Image className="h-3 w-3 mr-1" />
+                      Добавить
+                    </Button>
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* Solution Image */}
+              <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                {question.solutionImageUrl ? (
+                  <>
+                    <img 
+                      src={question.solutionImageUrl} 
+                      alt="Решение" 
+                      className="h-16 w-16 object-cover rounded border"
+                    />
+                    <div className="flex-1">
+                      <p className="text-xs text-muted-foreground">Картинка решения</p>
+                      <p className="text-xs text-blue-600">Показывается в результатах</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleImageUpload(question, "solution")}
+                        className="mt-1"
+                      >
+                        <Image className="h-3 w-3 mr-1" />
+                        Изменить
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Картинка решения</p>
+                      <p className="text-xs text-muted-foreground">Показывается в результатах</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleImageUpload(question, "solution")}
+                    >
+                      <Image className="h-3 w-3 mr-1" />
+                      Добавить
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
             
             {answers.length > 0 ? (
               <DndContext
@@ -1371,6 +1447,7 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
           question={selectedQuestionForImage}
           open={imageUploadDialogOpen}
           onOpenChange={setImageUploadDialogOpen}
+          type={imageUploadDialogType}
         />
       )}
     </div>
@@ -1612,16 +1689,32 @@ function QuestionEditor({ question, subject, onBack }: QuestionEditorProps) {
             </div>
 
             {/* Image section */}
-            {question.imageUrl && (
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Картинка вопроса</label>
-                <div className="mt-2">
-                  <img 
-                    src={question.imageUrl} 
-                    alt="Вопрос" 
-                    className="max-w-full h-48 object-contain rounded-lg border"
-                  />
-                </div>
+            {(question.imageUrl || question.solutionImageUrl) && (
+              <div className="space-y-4">
+                {question.imageUrl && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Картинка вопроса</label>
+                    <div className="mt-2">
+                      <img 
+                        src={question.imageUrl} 
+                        alt="Вопрос" 
+                        className="max-w-full h-48 object-contain rounded-lg border"
+                      />
+                    </div>
+                  </div>
+                )}
+                {question.solutionImageUrl && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Картинка решения</label>
+                    <div className="mt-2">
+                      <img 
+                        src={question.solutionImageUrl} 
+                        alt="Решение" 
+                        className="max-w-full h-48 object-contain rounded-lg border"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
