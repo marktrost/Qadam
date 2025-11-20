@@ -917,7 +917,15 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
   // Мутация для обновления вопроса
   const updateQuestionMutation = useMutation({
     mutationFn: async ({ id, text }: { id: string; text: string }) => {
-      await apiRequest("PUT", `/api/questions/${id}`, { text });
+      // Получаем текущий вопрос чтобы сохранить остальные поля
+      const currentQuestion = questions.find(q => q.id === id);
+      if (!currentQuestion) throw new Error("Question not found");
+      
+      // Отправляем полный объект вопроса с обновленным текстом
+      await apiRequest("PUT", `/api/questions/${id}`, {
+        ...currentQuestion,
+        text: text
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
@@ -925,7 +933,8 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
       setEditQuestionText("");
       toast({ title: "Успешно", description: "Вопрос обновлен" });
     },
-    onError: () => {
+    onError: (error) => {
+      console.error("Error updating question:", error);
       toast({ title: "Ошибка", description: "Не удалось обновить вопрос", variant: "destructive" });
     },
   });
