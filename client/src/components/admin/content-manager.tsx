@@ -885,6 +885,10 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
   const [imageUploadDialogOpen, setImageUploadDialogOpen] = useState(false);
   const [selectedQuestionForImage, setSelectedQuestionForImage] = useState<Question | null>(null);
   const [imageUploadDialogType, setImageUploadDialogType] = useState<"question" | "solution">("question");
+  
+  // Новые состояния для редактирования вопроса
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+  const [editQuestionText, setEditQuestionText] = useState("");
 
   const { data: questions = [], isLoading } = useQuery({
     queryKey: [`/api/subjects/${subject.id}/questions`],
@@ -907,6 +911,22 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     },
     onError: () => {
       toast({ title: "Ошибка", description: "Не удалось создать вопрос", variant: "destructive" });
+    },
+  });
+
+  // Мутация для обновления вопроса
+  const updateQuestionMutation = useMutation({
+    mutationFn: async ({ id, text }: { id: string; text: string }) => {
+      await apiRequest("PUT", `/api/questions/${id}`, { text });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      setEditingQuestion(null);
+      setEditQuestionText("");
+      toast({ title: "Успешно", description: "Вопрос обновлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить вопрос", variant: "destructive" });
     },
   });
 
@@ -1023,6 +1043,26 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
       toast({ title: "Ошибка", description: "Не удалось добавить ответ", variant: "destructive" });
     },
   });
+
+  // Обработчики для редактирования вопроса
+  const handleEditQuestion = (question: Question) => {
+    setEditingQuestion(question);
+    setEditQuestionText(question.text);
+  };
+
+  const handleSaveQuestion = () => {
+    if (editingQuestion && editQuestionText.trim()) {
+      updateQuestionMutation.mutate({ 
+        id: editingQuestion.id, 
+        text: editQuestionText.trim() 
+      });
+    }
+  };
+
+  const handleCancelEditQuestion = () => {
+    setEditingQuestion(null);
+    setEditQuestionText("");
+  };
 
   const handleEditAnswer = (answer: Answer) => {
     setEditingAnswer(answer);
@@ -1166,6 +1206,20 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
           
           {/* Кнопки действий - отдельная область */}
           <div className="flex gap-1 flex-shrink-0 pr-2">
+            {/* Кнопка редактирования вопроса */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditQuestion(question);
+              }}
+              title="Редактировать вопрос"
+            >
+              <Edit className="h-3 w-3" />
+            </Button>
+            
             <Button
               variant="outline"
               size="sm"
@@ -1367,6 +1421,39 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
           Нет вопросов. Создайте первый вопрос.
         </div>
       )}
+
+      {/* Edit Question Dialog */}
+      <Dialog open={!!editingQuestion} onOpenChange={(open) => !open && handleCancelEditQuestion()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Редактировать вопрос</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="question-text">Текст вопроса</Label>
+              <textarea
+                id="question-text"
+                value={editQuestionText}
+                onChange={(e) => setEditQuestionText(e.target.value)}
+                placeholder="Введите текст вопроса"
+                className="w-full h-32 p-3 border rounded-md resize-none"
+                rows={4}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={handleCancelEditQuestion}>
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleSaveQuestion}
+                disabled={!editQuestionText.trim() || updateQuestionMutation.isPending}
+              >
+                {updateQuestionMutation.isPending ? "Сохраняется..." : "Сохранить"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Answer Dialog */}
       <Dialog open={!!editingAnswer} onOpenChange={(open) => !open && handleCancelEdit()}>
