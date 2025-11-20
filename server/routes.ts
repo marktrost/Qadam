@@ -434,7 +434,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/questions/:id", requireAdmin, async (req, res) => {
     try {
-      const validatedData = insertQuestionSchema.parse(req.body);
+      const validatedData = insertQuestionSchema.partial().parse(req.body);
       const question = await storage.updateQuestion(req.params.id, validatedData);
       if (!question) {
         return res.status(404).json({ message: "Вопрос не найден" });
