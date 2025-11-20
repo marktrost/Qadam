@@ -47,12 +47,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ChevronRight, ChevronDown, Plus, Trash2, Edit, GripVertical, Calculator, Atom, Upload } from "lucide-react";
 import type { Block, Variant, Subject, Question, Answer } from "@shared/schema";
-
-
 
 // Sortable Drag Handle Component
 // Компонент SortableCard с drag-and-drop логикой
@@ -730,6 +729,8 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
   const [showAddAnswerDialog, setShowAddAnswerDialog] = useState(false);
   const [selectedQuestionForAnswer, setSelectedQuestionForAnswer] = useState<Question | null>(null);
   const [newAnswerText, setNewAnswerText] = useState("");
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+  const [editQuestionText, setEditQuestionText] = useState("");
 
   const { data: questions = [], isLoading } = useQuery({
     queryKey: [`/api/subjects/${subject.id}/questions`],
@@ -752,6 +753,21 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     },
     onError: () => {
       toast({ title: "Ошибка", description: "Не удалось создать вопрос", variant: "destructive" });
+    },
+  });
+
+  const updateQuestionMutation = useMutation({
+    mutationFn: async ({ questionId, text }: { questionId: string; text: string }) => {
+      await apiRequest("PUT", `/api/questions/${questionId}`, { text });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      setEditingQuestion(null);
+      setEditQuestionText("");
+      toast({ title: "Успешно", description: "Вопрос обновлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить вопрос", variant: "destructive" });
     },
   });
 
@@ -908,6 +924,25 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     setNewAnswerText("");
   };
 
+  const handleEditQuestion = (question: Question) => {
+    setEditingQuestion(question);
+    setEditQuestionText(question.text);
+  };
+
+  const handleSaveQuestion = () => {
+    if (editingQuestion && editQuestionText.trim()) {
+      updateQuestionMutation.mutate({ 
+        questionId: editingQuestion.id, 
+        text: editQuestionText.trim() 
+      });
+    }
+  };
+
+  const handleCancelEditQuestion = () => {
+    setEditingQuestion(null);
+    setEditQuestionText("");
+  };
+
   const toggleQuestion = (questionId: string) => {
     const newExpanded = new Set(expandedQuestions);
     if (newExpanded.has(questionId)) {
@@ -1006,6 +1041,17 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
           {/* Кнопки действий - отдельная область */}
           <div className="flex gap-1 flex-shrink-0 pr-2">
             <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditQuestion(question);
+              }}
+            >
+              <Edit className="h-3 w-3" />
+            </Button>
+            <Button
               variant="destructive"
               size="sm"
               className="h-8 w-8 p-0"
@@ -1018,7 +1064,7 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
             >
               <Trash2 className="h-3 w-3" />
             </Button>
-              </div>
+          </div>
         </div>
         
         {isExpanded && (
@@ -1112,6 +1158,38 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
         </div>
       )}
 
+      {/* Edit Question Dialog */}
+      <Dialog open={!!editingQuestion} onOpenChange={(open) => !open && handleCancelEditQuestion()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Редактировать вопрос</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="question-text">Текст вопроса</Label>
+              <Textarea
+                id="question-text"
+                value={editQuestionText}
+                onChange={(e) => setEditQuestionText(e.target.value)}
+                placeholder="Введите текст вопроса"
+                className="min-h-[100px]"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={handleCancelEditQuestion}>
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleSaveQuestion}
+                disabled={!editQuestionText.trim() || updateQuestionMutation.isPending}
+              >
+                {updateQuestionMutation.isPending ? "Сохраняется..." : "Сохранить"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Answer Dialog */}
       <Dialog open={!!editingAnswer} onOpenChange={(open) => !open && handleCancelEdit()}>
         <DialogContent>
@@ -1187,8 +1265,6 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     </div>
   );
 }
-
-
 
 // Sortable Answer Item Component for Questions View
 function QuestionSortableAnswerItem({
@@ -1337,6 +1413,8 @@ function QuestionEditor({ question, subject, onBack }: QuestionEditorProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showAnswers, setShowAnswers] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState(false);
+  const [editQuestionText, setEditQuestionText] = useState(question.text);
 
   const { data: answers = [], isLoading: answersLoading } = useQuery({
     queryKey: [`/api/questions/${question.id}/answers`],
@@ -1345,6 +1423,21 @@ function QuestionEditor({ question, subject, onBack }: QuestionEditorProps) {
       return await res.json();
     },
     enabled: showAnswers,
+  });
+
+  const updateQuestionMutation = useMutation({
+    mutationFn: async (text: string) => {
+      await apiRequest("PUT", `/api/questions/${question.id}`, { text });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/questions/${question.id}/answers`] });
+      setEditingQuestion(false);
+      toast({ title: "Успешно", description: "Вопрос обновлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить вопрос", variant: "destructive" });
+    },
   });
 
   const reorderAnswersMutation = useMutation({
@@ -1404,6 +1497,12 @@ function QuestionEditor({ question, subject, onBack }: QuestionEditorProps) {
     setShowAnswers(!showAnswers);
   };
 
+  const handleSaveQuestion = () => {
+    if (editQuestionText.trim()) {
+      updateQuestionMutation.mutate(editQuestionText.trim());
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1411,18 +1510,54 @@ function QuestionEditor({ question, subject, onBack }: QuestionEditorProps) {
         <Button onClick={onBack} variant="outline">
           ← Назад к вопросам
         </Button>
+        <Button
+          onClick={() => setEditingQuestion(!editingQuestion)}
+          variant="outline"
+        >
+          <Edit className="h-4 w-4 mr-2" />
+          Редактировать вопрос
+        </Button>
       </div>
 
       {/* Question Card */}
       <Card>
         <CardContent className="p-6">
           <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Текст вопроса</label>
-              <div className="mt-2 p-3 bg-muted/50 rounded-lg">
-                <p className="text-sm">{question.text}</p>
+            {editingQuestion ? (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="edit-question-text">Текст вопроса</Label>
+                  <Textarea
+                    id="edit-question-text"
+                    value={editQuestionText}
+                    onChange={(e) => setEditQuestionText(e.target.value)}
+                    placeholder="Введите текст вопроса"
+                    className="min-h-[100px]"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setEditingQuestion(false)}
+                  >
+                    Отмена
+                  </Button>
+                  <Button
+                    onClick={handleSaveQuestion}
+                    disabled={!editQuestionText.trim() || updateQuestionMutation.isPending}
+                  >
+                    {updateQuestionMutation.isPending ? "Сохраняется..." : "Сохранить"}
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Текст вопроса</label>
+                <div className="mt-2 p-3 bg-muted/50 rounded-lg">
+                  <p className="text-sm">{question.text}</p>
+                </div>
+              </div>
+            )}
 
             {/* Answers Toggle */}
             <div className="border-t pt-4">
