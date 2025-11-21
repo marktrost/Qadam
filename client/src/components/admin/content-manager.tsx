@@ -980,20 +980,45 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     },
   });
 
+  // В компоненте QuestionsView найдите этот код и ЗАМЕНИТЕ его:
   const toggleAnswerCorrectness = useMutation({
     mutationFn: async ({ answerId, isCorrect }: { answerId: string; isCorrect: boolean }) => {
       await apiRequest("PUT", `/api/answers/${answerId}`, { isCorrect });
     },
-    onSuccess: () => {
-      // Перезагружаем ответы для всех раскрытых вопросов
-      expandedQuestions.forEach(questionId => {
-        queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
+    onMutate: async ({ answerId, isCorrect }) => {
+      // ОТМЕНЯЕМ текущие запросы чтобы не было конфликтов
+      await queryClient.cancelQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
+      
+      // СОХРАНЯЕМ старое состояние на случай ошибки
+      const previousAnswers = queryClient.getQueryData([`/api/questions/${questionId}/answers`]);
+      
+      // ОПТИМИСТИЧЕСКОЕ ОБНОВЛЕНИЕ - сразу меняем UI
+      queryClient.setQueryData([`/api/questions/${questionId}/answers`], (old: Answer[]) => 
+        old.map(answer => 
+          answer.id === answerId ? { ...answer, isCorrect } : answer
+        )
+      );
+      
+      return { previousAnswers };
+    },
+    onError: (err, variables, context) => {
+      // ЕСЛИ ОШИБКА - возвращаем старое состояние
+      if (context?.previousAnswers) {
+        queryClient.setQueryData([`/api/questions/${questionId}/answers`], context.previousAnswers);
+      }
+      toast({ 
+        title: "Ошибка", 
+        description: "Не удалось изменить правильность ответа", 
+        variant: "destructive" 
       });
+    },
+    onSuccess: () => {
       toast({ title: "Успешно", description: "Правильность ответа изменена" });
     },
-    onError: () => {
-      toast({ title: "Ошибка", description: "Не удалось изменить правильность ответа", variant: "destructive" });
-    },
+    onSettled: () => {
+      // ПОСЛЕ ВСЕГО - обновляем данные с сервера чтобы убедиться в актуальности
+      queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
+    }
   });
 
   const deleteAnswerMutation = useMutation({
