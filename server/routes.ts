@@ -1,2012 +1,2293 @@
-import type { Express, Request, Response, NextFunction } from "express";
-import { createServer, type Server } from "http";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { storage } from "./storage";
-import { setupAuth } from "./auth";
-import { insertBlockSchema, insertVariantSchema, insertSubjectSchema, insertQuestionSchema, insertAnswerSchema, updateAnswerSchema, insertTestResultSchema,
-         insertNotificationSchema, insertNotificationSettingsSchema, insertReminderSchema, notificationTypeSchema,
-         analyticsOverviewSchema, subjectAggregateSchema, historyPointSchema, correctnessBreakdownSchema, comparisonStatsSchema,
-         insertExportJobSchema, exportTypeSchema, exportFormatSchema, exportOptionsSchema } from "@shared/schema";
-import { ObjectStorageService } from "./objectStorage";
-// Rate limiting middleware removed for video upload (proctoring removed)
-// CRITICAL #5: Operational Hardening - Import health checks and monitoring
-import { operationalHardening } from "./operational-hardening";
-import { db } from "./db";
-import { testResults } from "@shared/schema";
-import { desc } from "drizzle-orm";
+/**
+ * ContentManager - Иерархическая структура контента
+ * 
+ * СТРУКТУРА:
+ * 
+ * 📦 БЛОКИ (Blocks)
+ *    └─ Тематические группы тестов (пример: "Физика+Математика", "2025", "ЕНТ 2026")
+ *       └─ Настройки: калькулятор, таблица Менделеева
+ * 
+ *       📝 ВАРИАНТЫ (Variants)
+ *          └─ Тестовые работы внутри блока (пример: "Вариант 1", "Вариант 2")
+ *             └─ Статус: бесплатный/платный
+ * 
+ *             📚 ПРЕДМЕТЫ (Subjects)
+ *                └─ Дисциплины внутри варианта (пример: "Математика", "Физика", "История Казахстана")
+ * 
+ *                   ❓ ВОПРОСЫ (Questions)
+ *                      └─ Тестовые задания по предмету (текст вопроса + варианты ответов + картинки)
+ * 
+ * НАВИГАЦИЯ: Блоки → Варианты → Предметы → Вопросы
+ */
 
-// Authentication middleware
-function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ message: "Требуется авторизация" });
-  }
-  next();
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { ChevronRight, ChevronDown, Plus, Trash2, Edit, GripVertical, Calculator, Atom, Upload, Image } from "lucide-react";
+import type { Block, Variant, Subject, Question, Answer } from "@shared/schema";
+
+// Sortable Drag Handle Component
+// Компонент SortableCard с drag-and-drop логикой
+interface SortableCardProps {
+  id: string;
+  children: (props: { attributes: any, listeners: any }) => React.ReactNode;
 }
 
-// Admin authorization middleware
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ message: "Требуется авторизация" });
-  }
-  
-  if (!isAdmin(req.user)) {
-    return res.status(403).json({ message: "Требуются права администратора" });
-  }
-  
-  next();
+function SortableCard({ id, children }: SortableCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="mb-2">
+      <Card className={`transition-shadow ${isDragging ? 'shadow-lg' : 'hover:shadow-md'}`}>
+        <CardContent className="p-0">
+          {children({ attributes, listeners })}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
-// Helper function to check if user is admin
-function isAdmin(user: any): boolean {
-  return user && user.username === "admin";
-}
+// Image Upload Dialog Component
+function ImageUploadDialog({ 
+  question, 
+  open, 
+  onOpenChange,
+  type = "question" // "question" | "solution"
+}: { 
+  question: Question; 
+  open: boolean; 
+  onOpenChange: (open: boolean) => void;
+  type?: "question" | "solution";
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [uploading, setUploading] = useState(false);
 
-// Rate limiting middleware for exports
-async function requireExportRateLimit(req: Request, res: Response, next: NextFunction) {
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ message: "Требуется авторизация" });
-  }
-  
-  try {
-    const { allowed, reason } = await storage.checkExportRateLimit(req.user?.id!);
-    if (!allowed) {
-      return res.status(429).json({ message: reason });
+  const isQuestionImage = type === "question";
+  const currentImageUrl = isQuestionImage ? question.imageUrl : question.solutionImageUrl;
+  const fieldName = isQuestionImage ? "imageUrl" : "solutionImageUrl";
+  const title = isQuestionImage ? "картинкой вопроса" : "картинкой решения";
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({ title: "Ошибка", description: "Выберите изображение", variant: "destructive" });
+      return;
     }
-    next();
-  } catch (error) {
-    res.status(500).json({ message: "Ошибка проверки лимитов" });
-  }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Ошибка", description: "Размер файла не должен превышать 5MB", variant: "destructive" });
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const response = await fetch('/api/upload/question-image', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Upload failed');
+      
+      const data = await response.json();
+      
+      // Обновляем вопрос с новым imageUrl или solutionImageUrl
+      await apiRequest("PUT", `/api/questions/${question.id}`, {
+        ...question,
+        [fieldName]: data.url
+      });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${question.subjectId}/questions`] });
+      toast({ title: "Успешно", description: `Картинка ${title} загружена` });
+      onOpenChange(false);
+    } catch (error) {
+      toast({ title: "Ошибка", description: `Не удалось загрузить картинку ${title}`, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteImage = async () => {
+    try {
+      await apiRequest("PUT", `/api/questions/${question.id}`, {
+        ...question,
+        [fieldName]: null
+      });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${question.subjectId}/questions`] });
+      toast({ title: "Успешно", description: `Картинка ${title} удалена` });
+      onOpenChange(false);
+    } catch (error) {
+      toast({ title: "Ошибка", description: `Не удалось удалить картинку ${title}`, variant: "destructive" });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {currentImageUrl ? `Управление ${title}` : `Загрузка ${title}`}
+          </DialogTitle>
+        </DialogHeader>
+        
+        {currentImageUrl ? (
+          <div className="space-y-4">
+            <img 
+              src={currentImageUrl} 
+              alt={title} 
+              className="w-full h-48 object-contain rounded-lg border"
+            />
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="flex-1"
+                onClick={handleDeleteImage}
+                disabled={uploading}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Удалить картинку
+              </Button>
+              <Label htmlFor={`replace-image-${question.id}-${type}`} className="flex-1">
+                <Button asChild variant="outline" className="w-full" disabled={uploading}>
+                  <span>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Заменить
+                  </span>
+                </Button>
+                <Input
+                  id={`replace-image-${question.id}-${type}`}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </Label>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Label htmlFor={`upload-image-${question.id}-${type}`} className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:bg-muted/50 transition-colors block">
+              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+              <div className="font-medium">Нажмите для выбора картинки</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                {isQuestionImage 
+                  ? "Эта картинка будет показана во время теста" 
+                  : "Эта картинка будет показана в результатах (решение)"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">
+                PNG, JPG, GIF до 5MB
+              </div>
+            </Label>
+            <Input
+              id={`upload-image-${question.id}-${type}`}
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+          </div>
+        )}
+        
+        {uploading && (
+          <div className="text-center text-sm text-muted-foreground">
+            Загрузка...
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  // Simple health check for Render (always returns OK)
-  app.get("/health", (req, res) => {
-    res.status(200).json({ 
-      status: "ok", 
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
-  });
+// Variants View Component
+interface VariantsViewProps {
+  block: Block;
+  onSelectVariant: (variant: Variant) => void;
+}
 
-  // CRITICAL #5: Operational Hardening - Detailed health check endpoints
-  app.get("/health/detailed", operationalHardening.healthCheckHandler);
-  app.get("/ready", operationalHardening.readyHandler);
-  
-  // System status endpoint for monitoring
-  app.get("/api/system/status", requireAuth, (req, res) => {
-    const status = operationalHardening.getSystemStatus();
-    res.json(status);
-  });
+function VariantsView({ block, onSelectVariant }: VariantsViewProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
+  const [newVariantName, setNewVariantName] = useState("");
+  const [isFree, setIsFree] = useState(true);
 
-  // Setup authentication
-  setupAuth(app);
-
-  // Configure multer for file uploads
-  const uploadDir = path.join(process.cwd(), 'uploads', 'question-images');
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-
-  const upload = multer({
-    storage: multer.diskStorage({
-      destination: (req, file, cb) => {
-        cb(null, uploadDir);
-      },
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'question-' + uniqueSuffix + path.extname(file.originalname));
-      }
-    }),
-    limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB limit
+  const { data: variants = [], isLoading } = useQuery({
+    queryKey: [`/api/blocks/${block.id}/variants`],
+    queryFn: async (): Promise<Variant[]> => {
+      const res = await apiRequest("GET", `/api/blocks/${block.id}/variants`);
+      return await res.json();
     },
-    fileFilter: (req, file, cb) => {
-      if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Только изображения разрешены'));
-      }
-    }
   });
 
-  // Image upload endpoint
-  app.post("/api/upload/question-image", requireAdmin, upload.single('image'), (req, res) => {
+  const createVariantMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/variants", {
+        name: newVariantName,
+        blockId: block.id,
+        isFree,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/blocks/${block.id}/variants`] });
+      setNewVariantName("");
+      setIsFree(true);
+      toast({ title: "Успешно", description: "Вариант создан" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось создать вариант", variant: "destructive" });
+    },
+  });
+
+  const updateVariantMutation = useMutation({
+    mutationFn: async (variant: Variant) => {
+      await apiRequest("PUT", `/api/variants/${variant.id}`, variant);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/blocks/${block.id}/variants`] });
+      setEditingVariant(null);
+      toast({ title: "Успешно", description: "Вариант обновлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить вариант", variant: "destructive" });
+    },
+  });
+
+  const deleteVariantMutation = useMutation({
+    mutationFn: async (variantId: string) => {
+      await apiRequest("DELETE", `/api/variants/${variantId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/blocks/${block.id}/variants`] });
+      toast({ title: "Успешно", description: "Вариант удален" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось удалить вариант", variant: "destructive" });
+    },
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiRequest("POST", "/api/variants/reorder", { blockId: block.id, ids });
+    },
+    onSuccess: () => {
+      // Invalidate both possible query keys for variants
+      queryClient.invalidateQueries({ queryKey: [`/api/blocks/${block.id}/variants`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks", block.id, "variants"] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/blocks/${block.id}/variants`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks", block.id, "variants"] });
+      toast({ title: "Ошибка", description: "Не удалось изменить порядок", variant: "destructive" });
+    },
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = variants.findIndex((v) => v.id === active.id);
+      const newIndex = variants.findIndex((v) => v.id === over.id);
+
+      const newVariants = arrayMove(variants, oldIndex, newIndex);
+      queryClient.setQueryData([`/api/blocks/${block.id}/variants`], newVariants);
+      reorderMutation.mutate(newVariants.map((v) => v.id));
+    }
+  };
+
+  if (isLoading) {
+    return <Skeleton className="h-24 w-full" />;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Add Variant Dialog */}
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button className="w-full">
+            <Plus className="mr-2 h-4 w-4" />
+            Добавить вариант
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Создать вариант</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="variantName">Название варианта</Label>
+              <Input
+                id="variantName"
+                value={newVariantName}
+                onChange={(e) => setNewVariantName(e.target.value)}
+                placeholder="Введите название"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="isFree"
+                checked={isFree}
+                onCheckedChange={setIsFree}
+              />
+              <Label htmlFor="isFree">Бесплатный</Label>
+            </div>
+            <Button
+              onClick={() => createVariantMutation.mutate()}
+              disabled={!newVariantName.trim() || createVariantMutation.isPending}
+              className="w-full"
+            >
+              Создать
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Variants List */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={variants.map((v) => v.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {variants.map((variant) => (
+            <SortableCard key={variant.id} id={variant.id}>
+              {({ attributes, listeners }) => (
+                <div className="flex items-center gap-2 min-h-[60px] w-full">
+                  {/* Drag handle - отдельная кликабельная область */}
+                  <div 
+                    className="cursor-grab active:cursor-grabbing p-2 flex items-center self-stretch" 
+                    {...attributes} 
+                    {...listeners}
+                  >
+                    <GripVertical className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  
+                  {/* Основная кликабельная область - занимает все доступное пространство */}
+                  <div 
+                    className="flex-1 flex items-center gap-2 cursor-pointer hover:text-primary hover:bg-muted/50 rounded-md transition-colors self-stretch px-3"
+                    onClick={() => onSelectVariant(variant)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">{variant.name}</div>
+                      <Badge variant={variant.isFree ? "outline" : "default"} className="text-xs">
+                        {variant.isFree ? "Бесплатный" : "Платный"}
+                      </Badge>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                  
+                  {/* Кнопки действий - отдельная область */}
+                  <div className="flex gap-1 flex-shrink-0 pr-2">
+                <Dialog open={editingVariant?.id === variant.id} onOpenChange={(open) => !open && setEditingVariant(null)}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingVariant(variant);
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Редактировать вариант</DialogTitle>
+                    </DialogHeader>
+                    {editingVariant && (
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="editVariantName">Название варианта</Label>
+                          <Input
+                            id="editVariantName"
+                            value={editingVariant.name}
+                            onChange={(e) =>
+                              setEditingVariant({ ...editingVariant, name: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id="editIsFree"
+                            checked={editingVariant.isFree ?? false}
+                            onCheckedChange={(checked) =>
+                              setEditingVariant({ ...editingVariant, isFree: checked })
+                            }
+                          />
+                          <Label htmlFor="editIsFree">Бесплатный</Label>
+                        </div>
+                        <Button
+                          onClick={() => updateVariantMutation.mutate(editingVariant)}
+                          disabled={updateVariantMutation.isPending}
+                          className="w-full"
+                        >
+                          Сохранить
+                        </Button>
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Удалить вариант "${variant.name}"?`)) {
+                      deleteVariantMutation.mutate(variant.id);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+                  </div>
+                </div>
+              )}
+            </SortableCard>
+          ))}
+        </SortableContext>
+      </DndContext>
+
+      {variants.length === 0 && (
+        <div className="text-center text-muted-foreground py-12">
+          Нет вариантов. Создайте первый вариант.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Subjects View Component
+interface SubjectsViewProps {
+  variant: Variant;
+  onSelectSubject: (subject: Subject) => void;
+}
+
+function SubjectsView({ variant, onSelectSubject }: SubjectsViewProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [editingSubject, setEditingSubject] = useState<Subject | null>(null);
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [bulkImportJson, setBulkImportJson] = useState("");
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+
+  const { data: subjects = [], isLoading } = useQuery({
+    queryKey: [`/api/variants/${variant.id}/subjects`],
+    queryFn: async (): Promise<Subject[]> => {
+      const res = await apiRequest("GET", `/api/variants/${variant.id}/subjects`);
+      return await res.json();
+    },
+  });
+
+  const createSubjectMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/subjects", {
+        name: newSubjectName,
+        variantId: variant.id,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/variants/${variant.id}/subjects`] });
+      setNewSubjectName("");
+      toast({ title: "Успешно", description: "Предмет создан" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось создать предмет", variant: "destructive" });
+    },
+  });
+
+  const updateSubjectMutation = useMutation({
+    mutationFn: async (subject: Subject) => {
+      await apiRequest("PUT", `/api/subjects/${subject.id}`, subject);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/variants/${variant.id}/subjects`] });
+      setEditingSubject(null);
+      toast({ title: "Успешно", description: "Предмет обновлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить предмет", variant: "destructive" });
+    },
+  });
+
+  const deleteSubjectMutation = useMutation({
+    mutationFn: async (subjectId: string) => {
+      await apiRequest("DELETE", `/api/subjects/${subjectId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/variants/${variant.id}/subjects`] });
+      toast({ title: "Успешно", description: "Предмет удален" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось удалить предмет", variant: "destructive" });
+    },
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiRequest("POST", "/api/subjects/reorder", { variantId: variant.id, ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/variants/${variant.id}/subjects`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/variants", variant.id, "test"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/variants", variant.id, "test"] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/variants/${variant.id}/subjects`] });
+      toast({ title: "Ошибка", description: "Не удалось изменить порядок", variant: "destructive" });
+    },
+  });
+
+  const bulkImportMutation = useMutation({
+    mutationFn: async (bulkData: any) => {
+      const response = await apiRequest("POST", "/api/subjects/bulk-import", { 
+        variantId: variant.id, 
+        bulkData 
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/variants/${variant.id}/subjects`] });
+      setBulkImportJson("");
+      setBulkImportOpen(false);
+      toast({ 
+        title: "Успешно", 
+        description: `Предмет "${data.subject.name}" создан с ${data.questionsCount} вопросами` 
+      });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Ошибка", 
+        description: error.message || "Не удалось импортировать данные", 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const handleBulkImport = async () => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ message: "Файл не загружен" });
+      if (!bulkImportJson.trim()) {
+        toast({ title: "Ошибка", description: "Введите JSON данные", variant: "destructive" });
+        return;
       }
+
+      const bulkData = JSON.parse(bulkImportJson);
       
-      // Return the URL to access the uploaded file
-      const fileUrl = `/uploads/question-images/${req.file.filename}`;
-      res.json({ url: fileUrl });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка загрузки файла" });
-    }
-  });
-
-  // Public routes (no authentication required)
-  app.get("/api/public/free-variants", async (req, res) => {
-    try {
-      const freeVariants = await storage.getFreeVariants();
-      res.json(freeVariants);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения бесплатных вариантов" });
-    }
-  });
-
-  app.get("/api/public/blocks", async (req, res) => {
-    try {
-      const blocks = await storage.getPublicBlocks();
-      res.json(blocks);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения блоков тестов" });
-    }
-  });
-
-  // Blocks routes
-  app.get("/api/blocks", async (req, res) => {
-    try {
-      const blocks = await storage.getAllBlocks();
-      res.json(blocks);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения блоков" });
-    }
-  });
-
-  app.get("/api/blocks/:id", async (req, res) => {
-    try {
-      const block = await storage.getBlock(req.params.id);
-      if (!block) {
-        return res.status(404).json({ message: "Блок не найден" });
-      }
-      res.json(block);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения блока" });
-    }
-  });
-
-  app.post("/api/blocks", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertBlockSchema.parse(req.body);
-      const block = await storage.createBlock(validatedData);
-      res.status(201).json(block);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка создания блока" });
-    }
-  });
-
-  app.put("/api/blocks/:id", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertBlockSchema.partial().parse(req.body);
-      const block = await storage.updateBlock(req.params.id, validatedData);
-      if (!block) {
-        return res.status(404).json({ message: "Блок не найден" });
-      }
-      res.json(block);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка обновления блока" });
-    }
-  });
-
-  app.delete("/api/blocks/:id", requireAdmin, async (req, res) => {
-    try {
-      await storage.deleteBlock(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления блока" });
-    }
-  });
-
-  // Reorder blocks
-  app.post("/api/blocks/reorder", requireAdmin, async (req, res) => {
-    try {
-      const { ids } = req.body;
-      if (!Array.isArray(ids)) {
-        return res.status(400).json({ message: "ids должен быть массивом" });
-      }
-      await storage.reorderBlocks(ids);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка изменения порядка блоков" });
-    }
-  });
-
-  // Variants routes
-  app.get("/api/blocks/:blockId/variants", async (req, res) => {
-    try {
-      const variants = await storage.getVariantsByBlock(req.params.blockId);
-      res.json(variants);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения вариантов" });
-    }
-  });
-
-  app.get("/api/variants/:id", async (req, res) => {
-    try {
-      const variant = await storage.getVariant(req.params.id);
-      if (!variant) {
-        return res.status(404).json({ message: "Вариант не найден" });
-      }
-      res.json(variant);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения варианта" });
-    }
-  });
-
-  app.post("/api/variants", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertVariantSchema.parse(req.body);
-      const variant = await storage.createVariant(validatedData);
-      res.status(201).json(variant);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка создания варианта" });
-    }
-  });
-
-  app.put("/api/variants/:id", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertVariantSchema.parse(req.body);
-      const variant = await storage.updateVariant(req.params.id, validatedData);
-      if (!variant) {
-        return res.status(404).json({ message: "Вариант не найден" });
-      }
-      res.json(variant);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка обновления варианта" });
-    }
-  });
-
-  app.delete("/api/variants/:id", requireAdmin, async (req, res) => {
-    try {
-      await storage.deleteVariant(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления варианта" });
-    }
-  });
-
-  // Reorder variants
-  app.post("/api/variants/reorder", requireAdmin, async (req, res) => {
-    try {
-      const { blockId, ids } = req.body;
-      if (!blockId || !Array.isArray(ids)) {
-        return res.status(400).json({ message: "blockId и ids обязательны" });
-      }
-      await storage.reorderVariants(blockId, ids);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка изменения порядка вариантов" });
-    }
-  });
-
-  // Subjects routes
-  app.get("/api/variants/:variantId/subjects", async (req, res) => {
-    try {
-      const subjects = await storage.getSubjectsByVariant(req.params.variantId);
-      res.json(subjects);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения предметов" });
-    }
-  });
-
-  app.post("/api/subjects", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertSubjectSchema.parse(req.body);
-      const subject = await storage.createSubject(validatedData);
-      res.status(201).json(subject);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка создания предмета" });
-    }
-  });
-
-  app.put("/api/subjects/:id", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertSubjectSchema.parse(req.body);
-      const subject = await storage.updateSubject(req.params.id, validatedData);
-      if (!subject) {
-        return res.status(404).json({ message: "Предмет не найден" });
-      }
-      res.json(subject);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка обновления предмета" });
-    }
-  });
-
-  app.delete("/api/subjects/:id", requireAdmin, async (req, res) => {
-    try {
-      await storage.deleteSubject(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления предмета" });
-    }
-  });
-
-  // Reorder subjects
-  app.post("/api/subjects/reorder", requireAdmin, async (req, res) => {
-    try {
-      const { variantId, ids } = req.body;
-      if (!variantId || !Array.isArray(ids)) {
-        return res.status(400).json({ message: "variantId и ids обязательны" });
-      }
-      await storage.reorderSubjects(variantId, ids);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка изменения порядка предметов" });
-    }
-  });
-
-  // Bulk import subject with questions
-  app.post("/api/subjects/bulk-import", requireAdmin, async (req, res) => {
-    try {
-      const { variantId, bulkData } = req.body;
-      
-      if (!variantId || !bulkData) {
-        return res.status(400).json({ message: "variantId и bulkData обязательны" });
-      }
-
-      // Validate bulk data structure
+      // Basic validation
       if (!bulkData.name || !Array.isArray(bulkData.questions)) {
-        return res.status(400).json({ message: "Неверная структура данных. Требуются поля: name, questions" });
+        toast({ title: "Ошибка", description: "Неверная структура JSON", variant: "destructive" });
+        return;
       }
 
-      // Validate questions structure
-      for (const question of bulkData.questions) {
-        if (!question.text || !Array.isArray(question.answers)) {
-          return res.status(400).json({ message: "Каждый вопрос должен содержать text и answers" });
-        }
+      bulkImportMutation.mutate(bulkData);
+    } catch (error) {
+      toast({ title: "Ошибка", description: "Неверный JSON формат", variant: "destructive" });
+    }
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = subjects.findIndex((s) => s.id === active.id);
+      const newIndex = subjects.findIndex((s) => s.id === over.id);
+
+      const newSubjects = arrayMove(subjects, oldIndex, newIndex);
+      queryClient.setQueryData([`/api/variants/${variant.id}/subjects`], newSubjects);
+      reorderMutation.mutate(newSubjects.map((s) => s.id));
+    }
+  };
+
+  if (isLoading) {
+    return <Skeleton className="h-24 w-full" />;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Add Subject Buttons */}
+      <div className="flex gap-2">
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button className="flex-1">
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить предмет
+            </Button>
+          </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Создать предмет</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="subjectName">Название предмета</Label>
+              <Input
+                id="subjectName"
+                value={newSubjectName}
+                onChange={(e) => setNewSubjectName(e.target.value)}
+                placeholder="Введите название"
+              />
+            </div>
+            <Button
+              onClick={() => createSubjectMutation.mutate()}
+              disabled={!newSubjectName.trim() || createSubjectMutation.isPending}
+              className="w-full"
+            >
+              Создать
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Import Dialog */}
+      <Dialog open={bulkImportOpen} onOpenChange={setBulkImportOpen}>
+        <DialogTrigger asChild>
+          <Button variant="outline" className="flex-1">
+            <Upload className="mr-2 h-4 w-4" />
+            Массовая загрузка
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Массовая загрузка предмета</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="bulkJson">JSON данные</Label>
+              <textarea
+                id="bulkJson"
+                value={bulkImportJson}
+                onChange={(e) => setBulkImportJson(e.target.value)}
+                className="w-full h-64 p-3 border rounded-md font-mono text-sm"
+                placeholder={`{
+  "name": "Физика",
+  "questions": [
+    {
+      "text": "Какая формула описывает закон Ома?",
+      "answers": [
+        { "text": "I = U/R", "isCorrect": true },
+        { "text": "U = I/R", "isCorrect": false },
+        { "text": "R = U*I", "isCorrect": false },
+        { "text": "P = U*I", "isCorrect": false },
+        { "text": "V = I*R", "isCorrect": false }
+      ]
+    }
+  ]
+}`}
+              />
+            </div>
+            <Button 
+              onClick={handleBulkImport}
+              disabled={bulkImportMutation.isPending}
+              className="w-full"
+            >
+              {bulkImportMutation.isPending ? "Импортирование..." : "Импортировать предмет"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+
+      {/* Subjects List */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={subjects.map((s) => s.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {subjects.map((subject) => (
+            <SortableCard key={subject.id} id={subject.id}>
+              {({ attributes, listeners }) => (
+                <div className="flex items-center gap-2 min-h-[60px] w-full">
+                  {/* Drag handle - отдельная кликабельная область */}
+                  <div 
+                    className="cursor-grab active:cursor-grabbing p-2 flex items-center self-stretch" 
+                    {...attributes} 
+                    {...listeners}
+                  >
+                    <GripVertical className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  
+                  {/* Основная кликабельная область - занимает все доступное пространство */}
+                  <div 
+                    className="flex-1 flex items-center gap-2 cursor-pointer hover:text-primary hover:bg-muted/50 rounded-md transition-colors self-stretch px-3"
+                    onClick={() => onSelectSubject(subject)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">{subject.name}</div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                  
+                  {/* Кнопки действий - отдельная область */}
+                  <div className="flex gap-1 flex-shrink-0 pr-2">
+                <Dialog open={editingSubject?.id === subject.id} onOpenChange={(open) => !open && setEditingSubject(null)}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingSubject(subject);
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Редактировать предмет</DialogTitle>
+                    </DialogHeader>
+                    {editingSubject && (
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="editSubjectName">Название предмета</Label>
+                          <Input
+                            id="editSubjectName"
+                            value={editingSubject.name}
+                            onChange={(e) =>
+                              setEditingSubject({ ...editingSubject, name: e.target.value })
+                            }
+                          />
+                        </div>
+                        <Button
+                          onClick={() => updateSubjectMutation.mutate(editingSubject)}
+                          disabled={updateSubjectMutation.isPending}
+                          className="w-full"
+                        >
+                          Сохранить
+                        </Button>
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Удалить предмет "${subject.name}"?`)) {
+                      deleteSubjectMutation.mutate(subject.id);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+                  </div>
+                </div>
+              )}
+            </SortableCard>
+          ))}
+        </SortableContext>
+      </DndContext>
+
+      {subjects.length === 0 && (
+        <div className="text-center text-muted-foreground py-12">
+          Нет предметов. Создайте первый предмет.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Questions View Component
+interface QuestionsViewProps {
+  subject: Subject;
+  variant: Variant;
+  onSelectQuestion: (question: Question) => void;
+}
+
+function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
+  const [editingAnswer, setEditingAnswer] = useState<Answer | null>(null);
+  const [editAnswerText, setEditAnswerText] = useState("");
+  const [showAddAnswerDialog, setShowAddAnswerDialog] = useState(false);
+  const [selectedQuestionForAnswer, setSelectedQuestionForAnswer] = useState<Question | null>(null);
+  const [newAnswerText, setNewAnswerText] = useState("");
+  const [imageUploadDialogOpen, setImageUploadDialogOpen] = useState(false);
+  const [selectedQuestionForImage, setSelectedQuestionForImage] = useState<Question | null>(null);
+  const [imageUploadDialogType, setImageUploadDialogType] = useState<"question" | "solution">("question");
   
-        // ИЗМЕНЕНИЕ: теперь 4 или 8 ответов вместо 5 или 8
-        if (question.answers.length !== 4 && question.answers.length !== 8) {
-          return res.status(400).json({ message: "Количество ответов должно быть 4 или 8" });
-        }
+  // Новые состояния для редактирования вопроса
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+  const [editQuestionText, setEditQuestionText] = useState("");
 
-        const correctAnswers = question.answers.filter((a: any) => a.isCorrect);
-  
-        // ИЗМЕНЕНИЕ: для 4 ответов должен быть 1 правильный
-        if (question.answers.length === 4 && correctAnswers.length !== 1) {
-          return res.status(400).json({ message: "Для 4 ответов должен быть 1 правильный" });
-        }
-  
-        // Для 8 ответов остается 3 правильных
-        if (question.answers.length === 8 && correctAnswers.length !== 3) {
-          return res.status(400).json({ message: "Для 8 ответов должно быть 3 правильных" });
-        }
-      }
+  const { data: questions = [], isLoading } = useQuery({
+    queryKey: [`/api/subjects/${subject.id}/questions`],
+    queryFn: async (): Promise<Question[]> => {
+      const res = await apiRequest("GET", `/api/subjects/${subject.id}/questions`);
+      return await res.json();
+    },
+  });
 
-      // Create subject
-      const subjectData = insertSubjectSchema.parse({
-        name: bulkData.name,
-        variantId: variantId
+  const createQuestionMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/questions", {
+        text: "Новый вопрос",
+        subjectId: subject.id,
       });
-      const subject = await storage.createSubject(subjectData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      toast({ title: "Успешно", description: "Вопрос создан" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось создать вопрос", variant: "destructive" });
+    },
+  });
 
-      // Create questions and answers
-      for (let i = 0; i < bulkData.questions.length; i++) {
-        const questionData = bulkData.questions[i];
-        
-        const question = await storage.createQuestion({
-          text: questionData.text,
-          subjectId: subject.id,
-          order: i + 1,
-          imageUrl: null,
-          solutionImageUrl: null
-        });
-
-        // Create answers
-        for (let j = 0; j < questionData.answers.length; j++) {
-          const answerData = questionData.answers[j];
-          await storage.createAnswer({
-            text: answerData.text,
-            isCorrect: answerData.isCorrect,
-            questionId: question.id,
-            order: j + 1
-          });
-        }
-      }
-
-      res.status(201).json({ 
-        success: true, 
-        subject,  
-        questionsCount: bulkData.questions.length 
+  // Мутация для обновления вопроса
+  const updateQuestionMutation = useMutation({
+    mutationFn: async ({ id, text }: { id: string; text: string }) => {
+      // Получаем текущий вопрос чтобы сохранить остальные поля
+      const currentQuestion = questions.find(q => q.id === id);
+      if (!currentQuestion) throw new Error("Question not found");
+      
+      // Отправляем полный объект вопроса с обновленным текстом
+      await apiRequest("PUT", `/api/questions/${id}`, {
+        ...currentQuestion,
+        text: text
       });
-    } catch (error) {
-      console.error("Bulk import error:", error);
-      res.status(500).json({ message: "Ошибка массовой загрузки" });
-    }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      setEditingQuestion(null);
+      setEditQuestionText("");
+      toast({ title: "Успешно", description: "Вопрос обновлен" });
+    },
+    onError: (error) => {
+      console.error("Error updating question:", error);
+      toast({ title: "Ошибка", description: "Не удалось обновить вопрос", variant: "destructive" });
+    },
   });
 
-  // Questions routes
-  app.get("/api/subjects/:subjectId/questions", async (req, res) => {
-    try {
-      const questions = await storage.getQuestionsBySubject(req.params.subjectId);
-      res.json(questions);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения вопросов" });
-    }
+  const deleteQuestionMutation = useMutation({
+    mutationFn: async (questionId: string) => {
+      await apiRequest("DELETE", `/api/questions/${questionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      toast({ title: "Успешно", description: "Вопрос удален" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось удалить вопрос", variant: "destructive" });
+    },
   });
 
-  app.post("/api/questions", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertQuestionSchema.parse(req.body);
-      const question = await storage.createQuestion(validatedData);
-      res.status(201).json(question);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка создания вопроса" });
-    }
+  const reorderMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiRequest("POST", "/api/questions/reorder", { subjectId: subject.id, ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/variants", variant.id, "test"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/variants", variant.id, "test"] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/subjects/${subject.id}/questions`] });
+      toast({ title: "Ошибка", description: "Не удалось изменить порядок", variant: "destructive" });
+    },
   });
 
-  app.put("/api/questions/:id", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertQuestionSchema.partial().parse(req.body);
-      const question = await storage.updateQuestion(req.params.id, validatedData);
-      if (!question) {
-        return res.status(404).json({ message: "Вопрос не найден" });
-      }
-      res.json(question);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка обновления вопроса" });
-    }
+  const reorderAnswersMutation = useMutation({
+    mutationFn: async ({ questionId, answerIds }: { questionId: string; answerIds: string[] }) => {
+      await apiRequest("PUT", `/api/questions/${questionId}/reorder-answers`, { answerIds });
+    },
+    onSuccess: (_, { questionId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
+      toast({ title: "Успешно", description: "Порядок ответов изменен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось изменить порядок ответов", variant: "destructive" });
+    },
   });
 
-  app.delete("/api/questions/:id", requireAdmin, async (req, res) => {
-    try {
-      await storage.deleteQuestion(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления вопроса" });
-    }
-  });
-
-  // Reorder questions
-  app.post("/api/questions/reorder", requireAdmin, async (req, res) => {
-    try {
-      const { subjectId, ids } = req.body;
-      if (!subjectId || !Array.isArray(ids)) {
-        return res.status(400).json({ message: "subjectId и ids обязательны" });
-      }
-      await storage.reorderQuestions(subjectId, ids);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка изменения порядка вопросов" });
-    }
-  });
-
-  // Answers routes
-  app.get("/api/questions/:questionId/answers", async (req, res) => {
-    try {
-      const answers = await storage.getAnswersByQuestion(req.params.questionId);
-      res.json(answers);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения ответов" });
-    }
-  });
-
-  app.post("/api/answers", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertAnswerSchema.parse(req.body);
-      const answer = await storage.createAnswer(validatedData);
-      res.status(201).json(answer);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка создания ответа" });
-    }
-  });
-
-  app.put("/api/answers/:id", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = updateAnswerSchema.parse(req.body);
-      const answer = await storage.updateAnswer(req.params.id, validatedData);
-      if (!answer) {
-        return res.status(404).json({ message: "Ответ не найден" });
-      }
-      res.json(answer);
-    } catch (error) {
-      console.error("Error updating answer:", error);
-      res.status(400).json({ message: "Ошибка обновления ответа" });
-    }
-  });
-
-  app.delete("/api/answers/:id", requireAdmin, async (req, res) => {
-    try {
-      await storage.deleteAnswer(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления ответа" });
-    }
-  });
-
-  // Reorder answers
-  app.post("/api/answers/reorder", requireAdmin, async (req, res) => {
-    try {
-      const { questionId, ids } = req.body;
-      if (!questionId || !Array.isArray(ids)) {
-        return res.status(400).json({ message: "questionId и ids обязательны" });
-      }
-      await storage.reorderAnswers(questionId, ids);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка изменения порядка ответов" });
-    }
-  });
-
-  // Reorder answers by question ID
-  app.put("/api/questions/:questionId/reorder-answers", requireAdmin, async (req, res) => {
-    try {
-      const { answerIds } = req.body;
-      if (!Array.isArray(answerIds)) {
-        return res.status(400).json({ message: "answerIds обязательны и должны быть массивом" });
-      }
-      await storage.reorderAnswers(req.params.questionId, answerIds);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка изменения порядка ответов" });
-    }
-  });
-
-  // Test routes  
-  // Public test endpoint (no auth required for free variants)
-  app.get("/api/public/variants/:variantId/test", async (req, res) => {
-    try {
-      const variant = await storage.getVariant(req.params.variantId);
-      if (!variant) {
-        return res.status(404).json({ message: "Вариант не найден" });
-      }
-
-      // Check if this variant is free
-      if (!variant.isFree) {
-        return res.status(403).json({ message: "Доступ к этому тесту требует авторизации" });
-      }
-
-      // Get the block for this variant
-      const block = await storage.getBlock(variant.blockId);
-      if (!block) {
-        return res.status(404).json({ message: "Блок не найден" });
-      }
-
-      const subjects = await storage.getSubjectsByVariant(req.params.variantId);
-      const testData = [];
-
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        const questionsWithAnswers = [];
-
-        for (const question of questions) {
-          const answers = await storage.getAnswersByQuestion(question.id);
-          // Filter out isCorrect field to prevent revealing correct answers to client
-          const safeAnswers = answers.map(answer => ({
-            id: answer.id,
-            text: answer.text,
-          }));
-          questionsWithAnswers.push({
-            ...question,
-            answers: safeAnswers,
-          });
-        }
-
-        testData.push({
-          subject,
-          questions: questionsWithAnswers,
-        });
-      }
-
-      res.json({
-        variant: { ...variant, block },
-        testData,
+  const toggleAnswerCorrectness = useMutation({
+    mutationFn: async ({ answerId, isCorrect }: { answerId: string; isCorrect: boolean }) => {
+      await apiRequest("PUT", `/api/answers/${answerId}`, { isCorrect });
+    },
+    onSuccess: () => {
+      // Перезагружаем ответы для всех раскрытых вопросов
+      expandedQuestions.forEach(questionId => {
+        queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
       });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения теста" });
-    }
+      toast({ title: "Успешно", description: "Правильность ответа изменена" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось изменить правильность ответа", variant: "destructive" });
+    },
   });
 
-  // Public test results endpoint (no auth required for free variants)
-  app.post("/api/public/test-results", async (req, res) => {
-    try {
-      const { variantId, answers, timeSpent } = req.body;
-      
-      if (!variantId || !answers || timeSpent === undefined) {
-        return res.status(400).json({ message: "Недостаточно данных" });
-      }
-
-      // Verify this is a free variant
-      const variant = await storage.getVariant(variantId);
-      if (!variant || !variant.isFree) {
-        return res.status(403).json({ message: "Доступ к результатам этого теста требует авторизации" });
-      }
-
-      // Get all questions for this variant to calculate score
-      const subjects = await storage.getSubjectsByVariant(variantId);
-      let totalQuestions = 0;
-      let totalPoints = 0;
-      let earnedPoints = 0;
-      
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        for (const question of questions) {
-          totalQuestions++;
-          const questionAnswers = await storage.getAnswersByQuestion(question.id);
-          
-          // Determine question type and points based on answer count
-          const answerCount = questionAnswers.length;
-          const correctAnswers = questionAnswers.filter(a => a.isCorrect);
-          const questionPoints = answerCount === 8 ? 2 : 1; // 8 answers = 2 points, 5 answers = 1 point
-          totalPoints += questionPoints;
-          
-          // Get user's answer(s) - can be array for multiple choice or single ID
-          const userAnswer = answers[question.id];
-          
-          if (answerCount === 4) {
-            // Single choice: 1 correct answer
-            if (userAnswer && !Array.isArray(userAnswer)) {
-              const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
-              if (selectedAnswer?.isCorrect) {
-                earnedPoints += 1;
-              }
-            }
-          } else if (answerCount === 8) {
-            // Multiple choice: 3 correct answers, must select all 3 and no wrong ones
-            if (userAnswer && Array.isArray(userAnswer)) {
-              const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
-              const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
-              const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
-              
-              // Award 2 points only if all 3 correct are selected and no wrong ones
-              if (selectedCorrect.length === 3 && selectedWrong.length === 0) {
-                earnedPoints += 2;
-              }
-            }
-          }
-        }
-      }
-      
-      const percentage = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
-      
-      // Return results without saving to database (guest session)
-      const result = {
-        variantId,
-        score: earnedPoints,
-        totalQuestions,
-        totalPoints,
-        percentage: Math.round(percentage),
-        timeSpent,
-        isGuestResult: true
-      };
-
-      res.status(200).json(result);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка обработки результата" });
-    }
-  });
-
-  app.get("/api/variants/:variantId/test", async (req, res) => {
-    try {
-      const variant = await storage.getVariant(req.params.variantId);
-      if (!variant) {
-        return res.status(404).json({ message: "Вариант не найден" });
-      }
-
-      // Get the block for this variant
-      const block = await storage.getBlock(variant.blockId);
-      if (!block) {
-        return res.status(404).json({ message: "Блок не найден" });
-      }
-
-      const subjects = await storage.getSubjectsByVariant(req.params.variantId);
-      const testData = [];
-
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        const questionsWithAnswers = [];
-
-        for (const question of questions) {
-          const answers = await storage.getAnswersByQuestion(question.id);
-          // Filter out isCorrect field to prevent revealing correct answers to client
-          const safeAnswers = answers.map(answer => ({
-            id: answer.id,
-            text: answer.text,
-          }));
-          questionsWithAnswers.push({
-            ...question,
-            answers: safeAnswers,
-          });
-        }
-
-        testData.push({
-          subject,
-          questions: questionsWithAnswers,
-        });
-      }
-
-      res.json({
-        variant: { ...variant, block },
-        testData,
+  const deleteAnswerMutation = useMutation({
+    mutationFn: async (answerId: string) => {
+      await apiRequest("DELETE", `/api/answers/${answerId}`);
+    },
+    onSuccess: () => {
+      // Перезагружаем ответы для всех раскрытых вопросов
+      expandedQuestions.forEach(questionId => {
+        queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
       });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения теста" });
-    }
+      toast({ title: "Успешно", description: "Ответ удален" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось удалить ответ", variant: "destructive" });
+    },
   });
 
-  app.post("/api/test-results", requireAuth, async (req, res) => {
-    try {
-
-      const { variantId, answers, timeSpent } = req.body;
-      
-      console.log('[DEBUG] Test submission received:', { variantId, timeSpent, answersCount: Object.keys(answers || {}).length });
-      
-      if (!variantId || !answers || timeSpent === undefined) {
-        return res.status(400).json({ message: "Недостаточно данных" });
-      }
-
-      // Get all questions for this variant to calculate score
-      const subjects = await storage.getSubjectsByVariant(variantId);
-      let totalQuestions = 0;
-      let totalPoints = 0;
-      let earnedPoints = 0;
-      
-      console.log('[DEBUG] Starting score calculation for variant:', variantId);
-      console.log('[DEBUG] Found subjects:', subjects.length);
-      console.log('[DEBUG] User answers:', Object.keys(answers || {}).length, 'answers provided');
-      
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        console.log(`[DEBUG] Subject ${subject.name}: ${questions.length} questions`);
-        
-        for (const question of questions) {
-          totalQuestions++;
-          const questionAnswers = await storage.getAnswersByQuestion(question.id);
-          
-          // Determine question type and points based on answer count
-          const answerCount = questionAnswers.length;
-          const correctAnswers = questionAnswers.filter(a => a.isCorrect);
-          const questionPoints = answerCount === 8 ? 2 : 1; // 8 answers = 2 points, 5 answers = 1 point
-          totalPoints += questionPoints;
-          
-          console.log(`[DEBUG] Question ${question.id}: ${answerCount} answers, ${correctAnswers.length} correct, worth ${questionPoints} points`);
-          
-          // Get user's answer(s) - can be array for multiple choice or single ID
-          const userAnswer = answers[question.id];
-          console.log(`[DEBUG] User answer for question ${question.id}:`, userAnswer);
-          
-          if (answerCount === 5) {
-            // Single choice: 1 correct answer
-            if (userAnswer && !Array.isArray(userAnswer)) {
-              const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
-              console.log(`[DEBUG] Single choice - selected answer:`, selectedAnswer);
-              if (selectedAnswer?.isCorrect) {
-                earnedPoints += 1;
-                console.log(`[DEBUG] Correct! Earned 1 point. Total: ${earnedPoints}`);
-              } else {
-                console.log(`[DEBUG] Wrong answer, 0 points`);
-              }
-            } else {
-              console.log(`[DEBUG] No answer or invalid format for single choice`);
-            }
-          } else if (answerCount === 8) {
-            // Multiple choice: 3 correct answers, must select all 3 and no wrong ones
-            if (userAnswer && Array.isArray(userAnswer)) {
-              const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
-              const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
-              const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
-              
-              console.log(`[DEBUG] Multiple choice - selected ${selectedAnswers.length} answers: ${selectedCorrect.length} correct, ${selectedWrong.length} wrong`);
-              
-              // Award 2 points only if all 3 correct are selected and no wrong ones
-              if (selectedCorrect.length === 3 && selectedWrong.length === 0) {
-                earnedPoints += 2;
-                console.log(`[DEBUG] Perfect! Earned 2 points. Total: ${earnedPoints}`);
-              } else {
-                console.log(`[DEBUG] Incomplete or has wrong answers, 0 points`);
-              }
-            } else {
-              console.log(`[DEBUG] No answer or invalid format for multiple choice`);
-            }
-          }
-        }
-      }
-      
-      console.log(`[DEBUG] Final calculation: ${earnedPoints}/${totalPoints} points = ${earnedPoints/totalPoints*100}%`);
-      
-      const percentage = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
-      
-      const validatedData = insertTestResultSchema.parse({
-        userId: req.user?.id,
-        variantId,
-        score: earnedPoints,
-        totalQuestions,
-        percentage,
-        timeSpent,
-        answers,
+  const editAnswerMutation = useMutation({
+    mutationFn: async ({ answerId, text }: { answerId: string; text: string }) => {
+      await apiRequest("PUT", `/api/answers/${answerId}`, { text });
+    },
+    onSuccess: () => {
+      // Перезагружаем ответы для всех раскрытых вопросов
+      expandedQuestions.forEach(questionId => {
+        queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
       });
-
-      const result = await storage.createTestResult(validatedData);
-      
-      // Update user ranking
-      await storage.updateUserRanking(req.user?.id!);
-
-      // Update subject progress if provided
-      if (req.body.subjectProgress) {
-        for (const [subjectName, progress] of Object.entries(req.body.subjectProgress as Record<string, any>)) {
-          await storage.updateSubjectProgress(
-            req.user?.id!,
-            subjectName,
-            progress.totalAnswered,
-            progress.correctAnswered
-          );
-        }
-      }
-
-      // Build test data with correct flags to return for review
-      const reviewTestData: any[] = [];
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        const questionsWithAnswers = [];
-        for (const question of questions) {
-          const answers = await storage.getAnswersByQuestion(question.id);
-          const answersWithFlag = answers.map(a => ({ id: a.id, text: a.text, isCorrect: !!a.isCorrect }));
-          questionsWithAnswers.push({ ...question, answers: answersWithFlag });
-        }
-        reviewTestData.push({ subject, questions: questionsWithAnswers });
-      }
-
-      // Create test completion notification
-      const variant = await storage.getVariant(variantId);
-      if (variant) {
-        let achievementMessage = "";
-        if (percentage >= 90) {
-          achievementMessage = " Отличная работа! 🌟";
-        } else if (percentage >= 70) {
-          achievementMessage = " Хорошо! 👍";
-        }
-
-        await storage.createNotification({
-          userId: req.user?.id!,
-          type: "TEST_COMPLETED",
-          title: "Тест завершен",
-          message: `Вы завершили тест ${variant.name}. Результат: ${earnedPoints}/${totalPoints} баллов (${Math.round(percentage)}%).${achievementMessage}`,
-          metadata: {
-            testResultId: result.id,
-            variantId: variant.id,
-            score: earnedPoints,
-            totalQuestions,
-            totalPoints,
-            percentage: Math.round(percentage),
-            timeSpent,
-          },
-          isRead: false,
-          channels: ["in_app"],
-        });
-
-        // Create achievement notification for high scores
-        if (percentage >= 95) {
-          await storage.createNotification({
-            userId: req.user?.id!,
-            type: "ACHIEVEMENT",
-            title: "Новое достижение! 🏆",
-            message: `Превосходный результат! Вы набрали ${Math.round(percentage)}% в тесте ${variant.name}. Поздравляем!`,
-            metadata: {
-              achievement: "HIGH_SCORE",
-              testResultId: result.id,
-              percentage: Math.round(percentage),
-            },
-            isRead: false,
-            channels: ["in_app"],
-          });
-        }
-      }
-
-      // Return created result plus full testData with correct flags and the user's answers
-      // Wrap in testData structure to match what frontend expects
-      const testDataResponse = {
-        variant: await storage.getVariant(variantId),
-        testData: reviewTestData
-      };
-      res.status(201).json({ result, testData: testDataResponse, userAnswers: answers });
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка сохранения результата" });
-    }
+      setEditingAnswer(null);
+      setEditAnswerText("");
+      toast({ title: "Успешно", description: "Ответ обновлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить ответ", variant: "destructive" });
+    },
   });
 
-  // Test progress endpoint for offline sync
-  app.post("/api/test-progress", requireAuth, async (req, res) => {
-    try {
-      const { testId, variantId, answers, timeSpent, lastSavedAt } = req.body;
-      
-      if (!testId || !variantId || !answers) {
-        return res.status(400).json({ message: "Недостаточно данных для сохранения прогресса" });
-      }
-
-      // For now, store test progress in memory or return success
-      // This can be extended to save to database if needed
-      console.log(`[API] Test progress saved for user ${req.user?.id}:`, {
-        testId,
-        variantId,
-        answersCount: Object.keys(answers).length,
-        timeSpent,
-        lastSavedAt
+  const createAnswerMutation = useMutation({
+    mutationFn: async ({ questionId, text }: { questionId: string; text: string }) => {
+      await apiRequest("POST", "/api/answers", {
+        text,
+        questionId,
+        isCorrect: false
       });
-      
-      res.json({
-        success: true,
-        message: "Прогресс теста сохранен",
-        savedAt: new Date().toISOString()
+    },
+    onSuccess: () => {
+      // Перезагружаем ответы для всех раскрытых вопросов
+      expandedQuestions.forEach(questionId => {
+        queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
       });
-    } catch (error) {
-      console.error('[API] Error saving test progress:', error);
-      res.status(500).json({ message: "Ошибка сохранения прогресса теста" });
-    }
+      setShowAddAnswerDialog(false);
+      setSelectedQuestionForAnswer(null);
+      setNewAnswerText("");
+      toast({ title: "Успешно", description: "Ответ добавлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось добавить ответ", variant: "destructive" });
+    },
   });
 
-  // Sync endpoint for offline test data
-  app.post("/api/sync/tests", requireAuth, async (req, res) => {
-    try {
-      const { action } = req.body;
-      
-      if (action === 'sync_offline_tests') {
-        console.log(`[API] Syncing offline tests for user ${req.user?.id}`);
-        
-        // This would handle syncing offline test data
-        // For now, just return success
-        res.json({
-          success: true,
-          message: "Офлайн тесты синхронизированы",
-          syncedAt: new Date().toISOString()
-        });
-      } else {
-        res.status(400).json({ message: "Неизвестное действие синхронизации" });
-      }
-    } catch (error) {
-      console.error('[API] Error syncing offline tests:', error);
-      res.status(500).json({ message: "Ошибка синхронизации офлайн тестов" });
-    }
-  });
+  // Обработчики для редактирования вопроса
+  const handleEditQuestion = (question: Question) => {
+    setEditingQuestion(question);
+    setEditQuestionText(question.text);
+  };
 
-  // Get test result review data
-  app.get("/api/test-results/:resultId/review", requireAuth, async (req, res) => {
-    try {
-      const { resultId } = req.params;
-      
-      // Get test result and verify it belongs to the current user
-      const result = await storage.getTestResult(resultId);
-      if (!result) {
-        return res.status(404).json({ message: "Результат теста не найден" });
-      }
-      
-      if (result.userId !== req.user?.id) {
-        return res.status(403).json({ message: "Нет доступа к этому результату теста" });
-      }
-      
-      // Get variant and test data
-      const variant = await storage.getVariant(result.variantId);
-      if (!variant) {
-        return res.status(404).json({ message: "Вариант теста не найден" });
-      }
-      
-      // Get test data with correct answers - use same structure as POST /api/test-results
-      const subjects = await storage.getSubjectsByVariant(result.variantId);
-      const reviewTestData: any[] = [];
-      
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        const questionsWithAnswers = [];
-        
-        for (const question of questions) {
-          const answers = await storage.getAnswersByQuestion(question.id);
-          const answersWithFlag = answers.map(a => ({ 
-            id: a.id, 
-            text: a.text, 
-            isCorrect: !!a.isCorrect 
-          }));
-          questionsWithAnswers.push({ ...question, answers: answersWithFlag });
-        }
-        
-        reviewTestData.push({ subject, questions: questionsWithAnswers });
-      }
-      
-      // Wrap in testData structure to match what frontend expects
-      const testDataResponse = {
-        variant,
-        testData: reviewTestData
-      };
-      
-      // Get user answers from the stored result
-      const userAnswers = result.answers || {};
-      
-      console.log('[API] Review data for result:', result.id, {
-        hasUserAnswers: !!result.answers,
-        userAnswersCount: Object.keys(userAnswers).length,
-        sampleUserAnswer: Object.entries(userAnswers)[0]
+  const handleSaveQuestion = () => {
+    if (editingQuestion && editQuestionText.trim()) {
+      updateQuestionMutation.mutate({ 
+        id: editingQuestion.id, 
+        text: editQuestionText.trim() 
       });
-      
-      res.json({ 
-        result, 
-        variant,
-        testData: testDataResponse, 
-        userAnswers 
+    }
+  };
+
+  const handleCancelEditQuestion = () => {
+    setEditingQuestion(null);
+    setEditQuestionText("");
+  };
+
+  const handleEditAnswer = (answer: Answer) => {
+    setEditingAnswer(answer);
+    setEditAnswerText(answer.text);
+  };
+
+  const handleSaveAnswer = () => {
+    if (editingAnswer && editAnswerText.trim()) {
+      editAnswerMutation.mutate({ 
+        answerId: editingAnswer.id, 
+        text: editAnswerText.trim() 
       });
-    } catch (error) {
-      console.error('[API] Error getting test review data:', error);
-      res.status(500).json({ message: "Ошибка получения данных для просмотра теста" });
     }
-  });
+  };
 
-  // User profile routes
-  app.get("/api/profile", requireAuth, async (req, res) => {
-    try {
+  const handleCancelEdit = () => {
+    setEditingAnswer(null);
+    setEditAnswerText("");
+  };
 
-      const testResults = await storage.getTestResultsByUser(req.user?.id!);
-      const ranking = await storage.getUserRanking(req.user?.id!);
-      const subjectProgress = await storage.getSubjectProgress(req.user?.id!);
+  const handleAddAnswer = (question: Question) => {
+    setSelectedQuestionForAnswer(question);
+    setShowAddAnswerDialog(true);
+  };
 
-      res.json({
-        user: req.user,
-        testResults,
-        ranking,
-        subjectProgress,
+  const handleSaveNewAnswer = () => {
+    if (selectedQuestionForAnswer && newAnswerText.trim()) {
+      createAnswerMutation.mutate({ 
+        questionId: selectedQuestionForAnswer.id, 
+        text: newAnswerText.trim() 
       });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения профиля" });
     }
-  });
+  };
 
-  // Get latest test result for current user
-  app.get("/api/profile/latest-result", requireAuth, async (req, res) => {
-    try {
+  const handleCancelAddAnswer = () => {
+    setShowAddAnswerDialog(false);
+    setSelectedQuestionForAnswer(null);
+    setNewAnswerText("");
+  };
 
-      const testResults = await storage.getTestResultsByUser(req.user?.id!);
-      
-      if (testResults.length === 0) {
-        return res.status(404).json({ message: "Результаты тестов не найдены" });
-      }
+  const handleImageUpload = (question: Question, type: "question" | "solution") => {
+    setSelectedQuestionForImage(question);
+    setImageUploadDialogType(type);
+    setImageUploadDialogOpen(true);
+  };
 
-      // Sort by completedAt and get the latest one
-      const latestResult = testResults.sort((a, b) => 
-        new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime()
-      )[0];
-
-      res.json(latestResult);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения последнего результата" });
+  const toggleQuestion = (questionId: string) => {
+    const newExpanded = new Set(expandedQuestions);
+    if (newExpanded.has(questionId)) {
+      newExpanded.delete(questionId);
+    } else {
+      newExpanded.add(questionId);
     }
-  });
+    setExpandedQuestions(newExpanded);
+  };
 
-  // Rankings routes
-  app.get("/api/rankings", async (req, res) => {
-    try {
-      const rankings = await storage.getAllRankings();
-      const rankingsWithUsernames = [];
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
-      for (const ranking of rankings) {
-        const user = await storage.getUser(ranking.userId);
-        if (user) {
-          rankingsWithUsernames.push({
-            ...ranking,
-            username: user.username,
-          });
-        }
-      }
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
 
-      res.json(rankingsWithUsernames);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения рейтинга" });
+    if (over && active.id !== over.id) {
+      const oldIndex = questions.findIndex((q) => q.id === active.id);
+      const newIndex = questions.findIndex((q) => q.id === over.id);
+
+      const newQuestions = arrayMove(questions, oldIndex, newIndex);
+      queryClient.setQueryData([`/api/subjects/${subject.id}/questions`], newQuestions);
+      reorderMutation.mutate(newQuestions.map((q) => q.id));
     }
-  });
+  };
 
-  // Best result for today (all users)
-  app.get("/api/rankings/today-best", async (req, res) => {
-    try {
-      const bestResult = await storage.getTodayBestResult();
-      if (!bestResult) {
-        return res.json({ score: 0 });
-      }
-      res.json({ score: bestResult.score });
-    } catch (error) {
-      console.error('[API] Error fetching today best result:', error);
-      res.status(500).json({ message: "Ошибка получения лучшего результата" });
-    }
-  });
-
-  // Debug endpoint for today best result
-  app.get("/api/debug/today-best", async (req, res) => {
-    try {
-      console.log('[DEBUG] Starting today best result debug...');
-      
-      // Get all test results
-      const allResults = await db
-        .select({ 
-          id: testResults.id,
-          score: testResults.score, 
-          completedAt: testResults.completedAt,
-          userId: testResults.userId
-        })
-        .from(testResults)
-        .orderBy(desc(testResults.completedAt))
-        .limit(10);
-      
-      // Get today's date info
-      const now = new Date();
-      const kazakhstanOffset = 6 * 60;
-      const localTime = new Date(now.getTime() + (kazakhstanOffset * 60 * 1000));
-      
-      const todayStart = new Date(localTime);
-      todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(localTime);
-      todayEnd.setHours(23, 59, 59, 999);
-      
-      const utcTodayStart = new Date(todayStart.getTime() - (kazakhstanOffset * 60 * 1000));
-      const utcTodayEnd = new Date(todayEnd.getTime() - (kazakhstanOffset * 60 * 1000));
-      
-      // Filter today's results
-      const todayResults = allResults.filter(result => {
-        if (!result.completedAt) return false;
-        const resultDate = new Date(result.completedAt);
-        return resultDate >= utcTodayStart && resultDate <= utcTodayEnd;
-      });
-      
-      const debugInfo = {
-        currentUTC: now.toISOString(),
-        kazakhstanTime: localTime.toISOString(),
-        todayRange: {
-          start: utcTodayStart.toISOString(),
-          end: utcTodayEnd.toISOString()
-        },
-        totalResults: allResults.length,
-        todayResults: todayResults.length,
-        recentResults: allResults.map(r => ({
-          id: r.id.substring(0, 8),
-          score: r.score,
-          completedAt: r.completedAt ? new Date(r.completedAt).toISOString() : null,
-          isToday: r.completedAt ? (new Date(r.completedAt) >= utcTodayStart && new Date(r.completedAt) <= utcTodayEnd) : false
-        })),
-        bestTodayScore: todayResults.length > 0 ? Math.max(...todayResults.map(r => r.score)) : 0
-      };
-      
-      console.log('[DEBUG] Debug info:', JSON.stringify(debugInfo, null, 2));
-      res.json(debugInfo);
-      
-    } catch (error) {
-      console.error('[DEBUG] Error in debug endpoint:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Analytics routes
-  app.get("/api/analytics/overview", requireAuth, async (req, res) => {
-    try {
-      const overview = await storage.getAnalyticsOverview(req.user?.id!);
-      const validatedData = analyticsOverviewSchema.parse(overview);
-      res.json(validatedData);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения общей аналитики" });
-    }
-  });
-
-  app.get("/api/analytics/subjects", requireAuth, async (req, res) => {
-    try {
-      const subjects = await storage.getSubjectAggregates(req.user?.id!);
-      const validatedData = subjects.map(subject => subjectAggregateSchema.parse(subject));
-      res.json(validatedData);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения аналитики по предметам" });
-    }
-  });
-
-  app.get("/api/analytics/history", requireAuth, async (req, res) => {
-    try {
-      const rangeDays = req.query.range ? parseInt(req.query.range as string) : 30;
-      
-      if (isNaN(rangeDays) || rangeDays <= 0 || rangeDays > 365) {
-        return res.status(400).json({ message: "Недопустимый диапазон дней (1-365)" });
-      }
-
-      const history = await storage.getHistory(req.user?.id!, rangeDays);
-      const validatedData = history.map(point => historyPointSchema.parse(point));
-      res.json(validatedData);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения исторической аналитики" });
-    }
-  });
-
-  app.get("/api/analytics/correctness", requireAuth, async (req, res) => {
-    try {
-      const rangeDays = req.query.range ? parseInt(req.query.range as string) : 30;
-      
-      if (isNaN(rangeDays) || rangeDays <= 0 || rangeDays > 365) {
-        return res.status(400).json({ message: "Недопустимый диапазон дней (1-365)" });
-      }
-
-      const breakdown = await storage.getCorrectnessBreakdown(req.user?.id!, rangeDays);
-      const validatedData = breakdown.map(point => correctnessBreakdownSchema.parse(point));
-      res.json(validatedData);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения аналитики правильности ответов" });
-    }
-  });
-
-  app.get("/api/analytics/comparison", requireAuth, async (req, res) => {
-    try {
-      const comparison = await storage.getComparison(req.user?.id!);
-      const validatedData = comparisonStatsSchema.parse(comparison);
-      res.json(validatedData);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения сравнительной аналитики" });
-    }
-  });
-
-  // Notification routes
-  app.get("/api/notifications", requireAuth, async (req, res) => {
-    try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 10;
-      const type = req.query.type ? notificationTypeSchema.parse(req.query.type) : undefined;
-      
-      const result = await storage.getNotifications(req.user?.id!, page, limit, type);
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения уведомлений" });
-    }
-  });
-
-  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
-    try {
-      const count = await storage.getUnreadNotificationCount(req.user?.id!);
-      res.json({ count });
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения количества непрочитанных уведомлений" });
-    }
-  });
-
-  app.post("/api/notifications/:id/mark-read", requireAuth, async (req, res) => {
-    try {
-      await storage.markNotificationAsRead(req.params.id, req.user?.id!);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка отметки уведомления как прочитанного" });
-    }
-  });
-
-  app.post("/api/notifications/mark-all-read", requireAuth, async (req, res) => {
-    try {
-      await storage.markAllNotificationsAsRead(req.user?.id!);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка отметки всех уведомлений как прочитанных" });
-    }
-  });
-
-  app.delete("/api/notifications/:id", requireAuth, async (req, res) => {
-    try {
-      await storage.deleteNotification(req.params.id, req.user?.id!);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления уведомления" });
-    }
-  });
-
-  app.post("/api/notifications/broadcast", requireAdmin, async (req, res) => {
-    try {
-      const validatedData = insertNotificationSchema.omit({ userId: true }).parse(req.body);
-      
-      // Get all users and create notifications for each
-      const rankings = await storage.getAllRankings();
-      const notifications = [];
-      
-      for (const ranking of rankings) {
-        const notification = await storage.createNotification({
-          ...validatedData,
-          userId: ranking.userId,
-        });
-        notifications.push(notification);
-      }
-      
-      res.status(201).json({ created: notifications.length });
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка рассылки уведомлений" });
-    }
-  });
-
-  // Notification Settings routes
-  app.get("/api/notification-settings", requireAuth, async (req, res) => {
-    try {
-      const settings = await storage.getNotificationSettings(req.user?.id!);
-      if (!settings) {
-        // Return default settings if none exist
-        const defaultSettings = {
-          userId: req.user?.id!,
-          testCompletedEnabled: true,
-          testReminderEnabled: true,
-          systemMessageEnabled: true,
-          achievementEnabled: true,
-          inAppEnabled: true,
-          pushEnabled: false,
-          emailEnabled: false,
-          reminderIntervalMinutes: 30,
-          maxRemindersPerDay: 3,
-          quietHoursStart: "22:00",
-          quietHoursEnd: "08:00",
-          updatedAt: new Date(),
-        };
-        res.json(defaultSettings);
-      } else {
-        res.json(settings);
-      }
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения настроек уведомлений" });
-    }
-  });
-
-  app.put("/api/notification-settings", requireAuth, async (req, res) => {
-    try {
-      const validatedData = insertNotificationSettingsSchema.parse({
-        ...req.body,
-        userId: req.user?.id!,
-      });
-      const settings = await storage.upsertNotificationSettings(validatedData);
-      res.json(settings);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка обновления настроек уведомлений" });
-    }
-  });
-
-  // Reminder routes
-  app.get("/api/reminders", requireAuth, async (req, res) => {
-    try {
-      const reminders = await storage.getReminders(req.user?.id!);
-      res.json(reminders);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения напоминаний" });
-    }
-  });
-
-  app.post("/api/reminders", requireAuth, async (req, res) => {
-    try {
-      const validatedData = insertReminderSchema.parse({
-        ...req.body,
-        userId: req.user?.id!,
-      });
-      const reminder = await storage.createReminder(validatedData);
-      res.status(201).json(reminder);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка создания напоминания" });
-    }
-  });
-
-  app.patch("/api/reminders/:id", requireAuth, async (req, res) => {
-    try {
-      const validatedData = insertReminderSchema.partial().parse(req.body);
-      const reminder = await storage.updateReminder(req.params.id, validatedData);
-      if (!reminder) {
-        return res.status(404).json({ message: "Напоминание не найдено" });
-      }
-      res.json(reminder);
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка обновления напоминания" });
-    }
-  });
-
-  app.delete("/api/reminders/:id", requireAuth, async (req, res) => {
-    try {
-      await storage.deleteReminder(req.params.id, req.user?.id!);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления напоминания" });
-    }
-  });
-
-  // Export routes
-  app.post("/api/exports", requireExportRateLimit, async (req, res) => {
-    try {
-      const { type, format, options } = req.body;
-      
-      // Validate input
-      exportTypeSchema.parse(type);
-      exportFormatSchema.parse(format);
-      const validatedOptions = exportOptionsSchema.parse(options || {});
-      
-      const exportJob = await storage.createExportJob({
-        userId: req.user?.id!,
-        type,
-        format,
-        options: validatedOptions,
-        status: "PENDING",
-        progress: 0,
-      });
-
-      // Increment rate limiting counters
-      await storage.incrementExportCount(req.user?.id!);
-      
-      res.status(201).json({ jobId: exportJob.id });
-    } catch (error) {
-      res.status(400).json({ message: "Ошибка создания задания экспорта" });
-    }
-  });
-
-  app.get("/api/exports/:id/status", requireAuth, async (req, res) => {
-    try {
-      const job = await storage.getExportJob(req.params.id);
-      if (!job || job.userId !== req.user?.id) {
-        return res.status(404).json({ message: "Задание не найдено" });
-      }
-
-      const response: any = {
-        status: job.status,
-        progress: job.progress,
-        createdAt: job.createdAt,
-        completedAt: job.completedAt,
-      };
-
-      if (job.status === "COMPLETED" && job.fileKey) {
-        response.downloadUrl = `/api/exports/${job.id}/download`;
-        response.fileName = job.fileName;
-        response.fileSize = job.fileSize;
-      }
-
-      if (job.status === "FAILED") {
-        response.error = job.errorMessage;
-      }
-
-      res.json(response);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения статуса задания" });
-    }
-  });
-
-  app.get("/api/exports/:id/download", requireAuth, async (req, res) => {
-    try {
-      const job = await storage.getExportJob(req.params.id);
-      if (!job || job.userId !== req.user?.id) {
-        return res.status(404).json({ message: "Задание не найдено" });
-      }
-
-      if (job.status !== "COMPLETED" || !job.fileKey) {
-        return res.status(404).json({ message: "Файл недоступен" });
-      }
-
-      const fileBuffer = await storage.getFile(job.fileKey);
-      if (!fileBuffer) {
-        return res.status(404).json({ message: "Файл не найден или истек" });
-      }
-
-      const contentType = job.format === "PDF" ? "application/pdf" : 
-                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Length", fileBuffer.length);
-      res.setHeader("Content-Disposition", `attachment; filename="${job.fileName}"`);
-      res.send(fileBuffer);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка скачивания файла" });
-    }
-  });
-
-  app.get("/api/exports", requireAuth, async (req, res) => {
-    try {
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
-      const jobs = await storage.listExportJobsByUser(req.user?.id!, limit);
-      res.json(jobs);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения списка экспортов" });
-    }
-  });
-
-  app.delete("/api/exports/:id", requireAuth, async (req, res) => {
-    try {
-      await storage.deleteExportJob(req.params.id, req.user?.id!);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления задания экспорта" });
-    }
-  });
-
-  // Admin endpoint for monitoring exports
-  app.get("/api/admin/exports", requireAdmin, async (req, res) => {
-    try {
-      const pendingJobs = await storage.getPendingExportJobs();
-      res.json(pendingJobs);
-    } catch (error) {
-      res.status(500).json({ message: "Ошибка получения заданий экспорта" });
-    }
-  });
-
-  // Push notification subscription routes
-  app.post("/api/push/subscribe", requireAuth, async (req, res) => {
-    try {
-      const { endpoint, keys } = req.body;
-      
-      if (!endpoint || !keys || !keys.p256dh || !keys.auth) {
-        return res.status(400).json({ message: "Недостаточно данных подписки" });
-      }
-
-      // Save subscription to storage (this would need to be implemented in storage)
-      console.log(`[Push] Subscription saved for user ${req.user?.id}:`, {
-        endpoint,
-        p256dh: keys.p256dh.substring(0, 20) + '...',
-        auth: keys.auth.substring(0, 20) + '...'
-      });
-      
-      res.json({
-        success: true,
-        message: "Подписка на уведомления успешно сохранена"
-      });
-    } catch (error) {
-      console.error('[Push] Error saving subscription:', error);
-      res.status(500).json({ message: "Ошибка сохранения подписки" });
-    }
-  });
-
-  app.post("/api/push/unsubscribe", requireAuth, async (req, res) => {
-    try {
-      const { endpoint } = req.body;
-      
-      if (!endpoint) {
-        return res.status(400).json({ message: "Endpoint не указан" });
-      }
-
-      // Remove subscription from storage
-      console.log(`[Push] Subscription removed for user ${req.user?.id}, endpoint:`, endpoint);
-      
-      res.json({
-        success: true,
-        message: "Подписка на уведомления отменена"
-      });
-    } catch (error) {
-      console.error('[Push] Error removing subscription:', error);
-      res.status(500).json({ message: "Ошибка отмены подписки" });
-    }
-  });
-
-  app.post("/api/push/test", requireAuth, async (req, res) => {
-    try {
-      // This would send a test push notification
-      console.log(`[Push] Test notification requested for user ${req.user?.id}`);
-      
-      res.json({
-        success: true,
-        message: "Тестовое уведомление отправлено"
-      });
-    } catch (error) {
-      console.error('[Push] Error sending test notification:', error);
-      res.status(500).json({ message: "Ошибка отправки тестового уведомления" });
-    }
-  });
-
-  // Get VAPID public key for frontend
-  app.get("/api/push/vapid-key", (req, res) => {
-    res.json({
-      publicKey: 'BCHhBDxcAj5TrD2Zzg3g3UjgBHO9SjO9SjO9SjO9SjO9SjO9SjO9SjO9SjO9SjO9SjO9Sj'
+  // Component for individual question with answers
+  const QuestionWithAnswers = ({ question, attributes, listeners }: { question: Question, attributes: any, listeners: any }) => {
+    const isExpanded = expandedQuestions.has(question.id);
+    
+    const { data: answers = [] } = useQuery({
+      queryKey: [`/api/questions/${question.id}/answers`],
+      queryFn: async (): Promise<Answer[]> => {
+        const res = await apiRequest("GET", `/api/questions/${question.id}/answers`);
+        return await res.json();
+      },
+      enabled: isExpanded,
     });
+
+    const answerSensors = useSensors(
+      useSensor(PointerSensor, {
+        activationConstraint: {
+          distance: 8,
+        },
+      }),
+      useSensor(KeyboardSensor, {
+        coordinateGetter: sortableKeyboardCoordinates,
+      })
+    );
+
+    const handleAnswerDragEnd = (event: DragEndEvent) => {
+      const { active, over } = event;
+
+      if (active.id !== over?.id && answers) {
+        const oldIndex = answers.findIndex((answer) => answer.id === active.id);
+        const newIndex = answers.findIndex((answer) => answer.id === over?.id);
+
+        const newAnswers = arrayMove(answers, oldIndex, newIndex);
+        const answerIds = newAnswers.map((answer) => answer.id);
+        
+        // Оптимистическое обновление
+        queryClient.setQueryData([`/api/questions/${question.id}/answers`], newAnswers);
+        reorderAnswersMutation.mutate({ questionId: question.id, answerIds });
+      }
+    };
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 min-h-[60px] w-full">
+          {/* Drag handle - отдельная кликабельная область */}
+          <div 
+            className="cursor-grab active:cursor-grabbing p-2 flex items-center self-stretch" 
+            {...attributes} 
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          </div>
+          
+          {/* Основная кликабельная область - занимает все доступное пространство */}
+          <button
+            className="flex-1 flex items-center gap-2 text-left cursor-pointer hover:text-primary hover:bg-muted/50 rounded-md transition-colors self-stretch px-3"
+            onClick={() => toggleQuestion(question.id)}
+          >
+            {isExpanded ? <ChevronDown className="h-4 w-4 flex-shrink-0" /> : <ChevronRight className="h-4 w-4 flex-shrink-0" />}
+            <div className="text-sm line-clamp-2 flex-1">{question.text}</div>
+          </button>
+          
+          {/* Кнопки действий - отдельная область */}
+          <div className="flex gap-1 flex-shrink-0 pr-2">
+            {/* Кнопка редактирования вопроса */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditQuestion(question);
+              }}
+              title="Редактировать вопрос"
+            >
+              <Edit className="h-3 w-3" />
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleImageUpload(question, "question");
+              }}
+              title="Управление картинками"
+            >
+              <Image className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm("Удалить вопрос?")) {
+                  deleteQuestionMutation.mutate(question.id);
+                }
+              }}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+        
+        {isExpanded && (
+          <div className="ml-6 space-y-2">
+            {/* Image previews */}
+            <div className="space-y-3">
+              {/* Question Image */}
+              <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                {question.imageUrl ? (
+                  <>
+                    <img 
+                      src={question.imageUrl} 
+                      alt="Вопрос" 
+                      className="h-16 w-16 object-cover rounded border"
+                    />
+                    <div className="flex-1">
+                      <p className="text-xs text-muted-foreground">Картинка вопроса</p>
+                      <p className="text-xs text-green-600">Показывается во время теста</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleImageUpload(question, "question")}
+                        className="mt-1"
+                      >
+                        <Image className="h-3 w-3 mr-1" />
+                        Изменить
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Картинка вопроса</p>
+                      <p className="text-xs text-muted-foreground">Показывается во время теста</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleImageUpload(question, "question")}
+                    >
+                      <Image className="h-3 w-3 mr-1" />
+                      Добавить
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Solution Image */}
+              <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                {question.solutionImageUrl ? (
+                  <>
+                    <img 
+                      src={question.solutionImageUrl} 
+                      alt="Решение" 
+                      className="h-16 w-16 object-cover rounded border"
+                    />
+                    <div className="flex-1">
+                      <p className="text-xs text-muted-foreground">Картинка решения</p>
+                      <p className="text-xs text-blue-600">Показывается в результатах</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleImageUpload(question, "solution")}
+                        className="mt-1"
+                      >
+                        <Image className="h-3 w-3 mr-1" />
+                        Изменить
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Картинка решения</p>
+                      <p className="text-xs text-muted-foreground">Показывается в результатах</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleImageUpload(question, "solution")}
+                    >
+                      <Image className="h-3 w-3 mr-1" />
+                      Добавить
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {answers.length > 0 ? (
+              <DndContext
+                sensors={answerSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleAnswerDragEnd}
+              >
+                <SortableContext
+                  items={answers.map((answer) => answer.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {answers.map((answer) => (
+                    <QuestionSortableAnswerItem
+                      key={answer.id}
+                      answer={answer}
+                      onDelete={deleteAnswerMutation.mutate}
+                      onToggleCorrect={(id, isCorrect) => 
+                        toggleAnswerCorrectness.mutate({ answerId: id, isCorrect })
+                      }
+                      onEdit={handleEditAnswer}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            ) : (
+              <div className="text-center py-4 text-muted-foreground text-sm">
+                Нет ответов для этого вопроса
+              </div>
+            )}
+            
+            {/* Add Answer Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mt-2"
+              onClick={() => handleAddAnswer(question)}
+            >
+              <Plus className="mr-2 h-3 w-3" />
+              Добавить ответ
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (isLoading) {
+    return <Skeleton className="h-24 w-full" />;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Add Question Button */}
+      <Button
+        className="w-full"
+        onClick={() => createQuestionMutation.mutate()}
+        disabled={createQuestionMutation.isPending}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Добавить вопрос
+      </Button>
+
+      {/* Questions List */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={questions.map((q) => q.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {questions.map((question) => (
+            <SortableCard key={question.id} id={question.id}>
+              {({ attributes, listeners }) => (
+                <QuestionWithAnswers question={question} attributes={attributes} listeners={listeners} />
+              )}
+            </SortableCard>
+          ))}
+        </SortableContext>
+      </DndContext>
+
+      {questions.length === 0 && (
+        <div className="text-center text-muted-foreground py-12">
+          Нет вопросов. Создайте первый вопрос.
+        </div>
+      )}
+
+      {/* Edit Question Dialog */}
+      <Dialog open={!!editingQuestion} onOpenChange={(open) => !open && handleCancelEditQuestion()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Редактировать вопрос</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="question-text">Текст вопроса</Label>
+              <textarea
+                id="question-text"
+                value={editQuestionText}
+                onChange={(e) => setEditQuestionText(e.target.value)}
+                placeholder="Введите текст вопроса"
+                className="w-full h-32 p-3 border rounded-md resize-none"
+                rows={4}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={handleCancelEditQuestion}>
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleSaveQuestion}
+                disabled={!editQuestionText.trim() || updateQuestionMutation.isPending}
+              >
+                {updateQuestionMutation.isPending ? "Сохраняется..." : "Сохранить"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Answer Dialog */}
+      <Dialog open={!!editingAnswer} onOpenChange={(open) => !open && handleCancelEdit()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Редактировать ответ</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="answer-text">Текст ответа</Label>
+              <Input
+                id="answer-text"
+                value={editAnswerText}
+                onChange={(e) => setEditAnswerText(e.target.value)}
+                placeholder="Введите текст ответа"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={handleCancelEdit}>
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleSaveAnswer}
+                disabled={!editAnswerText.trim() || editAnswerMutation.isPending}
+              >
+                {editAnswerMutation.isPending ? "Сохраняется..." : "Сохранить"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Answer Dialog */}
+      <Dialog open={showAddAnswerDialog} onOpenChange={(open) => !open && handleCancelAddAnswer()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Добавить ответ</DialogTitle>
+            {selectedQuestionForAnswer && (
+              <p className="text-sm text-muted-foreground">
+                К вопросу: {selectedQuestionForAnswer.text.substring(0, 100)}
+                {selectedQuestionForAnswer.text.length > 100 ? '...' : ''}
+              </p>
+            )}
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="new-answer-text">Текст ответа</Label>
+              <Input
+                id="new-answer-text"
+                value={newAnswerText}
+                onChange={(e) => setNewAnswerText(e.target.value)}
+                placeholder="Введите текст ответа"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newAnswerText.trim()) {
+                    handleSaveNewAnswer();
+                  }
+                }}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={handleCancelAddAnswer}>
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleSaveNewAnswer}
+                disabled={!newAnswerText.trim() || createAnswerMutation.isPending}
+              >
+                {createAnswerMutation.isPending ? "Добавляется..." : "Добавить"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Upload Dialog */}
+      {selectedQuestionForImage && (
+        <ImageUploadDialog
+          question={selectedQuestionForImage}
+          open={imageUploadDialogOpen}
+          onOpenChange={setImageUploadDialogOpen}
+          type={imageUploadDialogType}
+        />
+      )}
+    </div>
+  );
+}
+
+// Sortable Answer Item Component for Questions View
+function QuestionSortableAnswerItem({
+  answer,
+  onDelete,
+  onToggleCorrect,
+  onEdit,
+}: {
+  answer: Answer;
+  onDelete: (id: string) => void;
+  onToggleCorrect: (id: string, isCorrect: boolean) => void;
+  onEdit?: (answer: Answer) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: answer.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-3 p-2 bg-muted/30 rounded-lg border ${
+        isDragging ? 'shadow-lg border-primary' : 'border-border'
+      }`}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground hover:text-foreground"
+      >
+        <GripVertical className="h-4 w-4" />
+      </div>
+      
+      <button
+        className={`h-4 w-4 rounded-full border-2 flex items-center justify-center transition-colors p-2 min-h-[32px] min-w-[32px] ${
+          answer.isCorrect 
+            ? 'bg-green-500 border-green-500' 
+            : 'bg-gray-300 border-gray-300 hover:border-green-400'
+        }`}
+        onClick={() => onToggleCorrect(answer.id, !answer.isCorrect)}
+        title={answer.isCorrect ? "Правильный ответ" : "Неправильный ответ"}
+      >
+        {answer.isCorrect && <div className="h-2 w-2 bg-white rounded-full" />}
+      </button>
+      
+      <span className="text-sm flex-1">{answer.text}</span>
+      
+      {onEdit && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-2 min-h-[32px] min-w-[32px]"
+          onClick={() => onEdit(answer)}
+          title="Редактировать ответ"
+        >
+          <Edit className="h-3 w-3" />
+        </Button>
+      )}
+      
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 w-6 p-2 min-h-[32px] min-w-[32px] text-destructive hover:text-destructive"
+        onClick={() => onDelete(answer.id)}
+        title="Удалить ответ"
+      >
+        <Trash2 className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+}
+
+// Original Sortable Answer Item Component for Question Editor
+function SortableAnswerItem({
+  answer,
+  onDelete,
+}: {
+  answer: Answer;
+  onDelete: (id: string) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: answer.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center justify-between p-3 bg-muted/30 rounded-lg border ${
+        isDragging ? 'shadow-lg border-primary' : 'border-border'
+      }`}
+    >
+      <div className="flex items-center space-x-3 flex-1 min-w-0">
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground hover:text-foreground"
+        >
+          <GripVertical className="h-4 w-4" />
+        </div>
+        <div className={`h-3 w-3 rounded-full ${answer.isCorrect ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+        <span className="text-sm flex-1">{answer.text}</span>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+        onClick={() => onDelete(answer.id)}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+// Question Editor Component
+interface QuestionEditorProps {
+  question: Question;
+  subject: Subject;
+  onBack: () => void;
+}
+
+function QuestionEditor({ question, subject, onBack }: QuestionEditorProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showAnswers, setShowAnswers] = useState(false);
+
+  const { data: answers = [], isLoading: answersLoading } = useQuery({
+    queryKey: [`/api/questions/${question.id}/answers`],
+    queryFn: async (): Promise<Answer[]> => {
+      const res = await apiRequest("GET", `/api/questions/${question.id}/answers`);
+      return await res.json();
+    },
+    enabled: showAnswers,
   });
 
-  // Video proctoring has been fully removed from the application.
-  // All related endpoints and handlers were deleted as part of the proctoring removal.
-  
-  // Temporary endpoint to create admin user (remove in production)
-  app.post("/api/create-admin", async (req, res) => {
-    console.log('[API] Creating admin user...');
-    try {
-      // Check if admin already exists
-      const existingAdmin = await storage.getUserByUsername("admin");
-      if (existingAdmin) {
-        return res.json({ message: "Админ уже существует", user: { username: existingAdmin.username, email: existingAdmin.email } });
-      }
+  const reorderAnswersMutation = useMutation({
+    mutationFn: async (answerIds: string[]) => {
+      await apiRequest("PUT", `/api/questions/${question.id}/reorder-answers`, { answerIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/questions/${question.id}/answers`] });
+      toast({ title: "Успешно", description: "Порядок ответов изменен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось изменить порядок ответов", variant: "destructive" });
+    },
+  });
+
+  const deleteAnswerMutation = useMutation({
+    mutationFn: async (answerId: string) => {
+      await apiRequest("DELETE", `/api/answers/${answerId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/questions/${question.id}/answers`] });
+      toast({ title: "Успешно", description: "Ответ удален" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось удалить ответ", variant: "destructive" });
+    },
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (active.id !== over?.id && answers) {
+      const oldIndex = answers.findIndex((answer) => answer.id === active.id);
+      const newIndex = answers.findIndex((answer) => answer.id === over?.id);
+
+      const newAnswers = arrayMove(answers, oldIndex, newIndex);
+      const answerIds = newAnswers.map((answer) => answer.id);
       
-      // Import hashPassword from auth
-      const { hashPassword } = await import('./auth');
-      
-      // Create admin user
-      const adminUser = await storage.createUser({
-        username: "admin",
-        email: "admin@example.com",
-        password: await hashPassword("admin123")
+      // Оптимистическое обновление
+      queryClient.setQueryData([`/api/questions/${question.id}/answers`], newAnswers);
+      reorderAnswersMutation.mutate(answerIds);
+    }
+  };
+
+  const toggleAnswers = () => {
+    setShowAnswers(!showAnswers);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <Button onClick={onBack} variant="outline">
+          ← Назад к вопросам
+        </Button>
+      </div>
+
+      {/* Question Card */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">Текст вопроса</label>
+              <div className="mt-2 p-3 bg-muted/50 rounded-lg">
+                <p className="text-sm">{question.text}</p>
+              </div>
+            </div>
+
+            {/* Image section */}
+            {(question.imageUrl || question.solutionImageUrl) && (
+              <div className="space-y-4">
+                {question.imageUrl && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Картинка вопроса</label>
+                    <div className="mt-2">
+                      <img 
+                        src={question.imageUrl} 
+                        alt="Вопрос" 
+                        className="max-w-full h-48 object-contain rounded-lg border"
+                      />
+                    </div>
+                  </div>
+                )}
+                {question.solutionImageUrl && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Картинка решения</label>
+                    <div className="mt-2">
+                      <img 
+                        src={question.solutionImageUrl} 
+                        alt="Решение" 
+                        className="max-w-full h-48 object-contain rounded-lg border"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Answers Toggle */}
+            <div className="border-t pt-4">
+              <Button
+                variant="ghost"
+                className="w-full justify-between p-3 hover:bg-muted/50"
+                onClick={toggleAnswers}
+              >
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium">Варианты ответов</span>
+                  <Badge variant="secondary">{answers.length}</Badge>
+                </div>
+                {showAnswers ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </Button>
+
+              {/* Answers List */}
+              {showAnswers && (
+                <div className="mt-4 space-y-3">
+                  {answersLoading ? (
+                    <div className="text-center py-4">
+                      <div className="text-sm text-muted-foreground">Загрузка ответов...</div>
+                    </div>
+                  ) : answers.length > 0 ? (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <SortableContext
+                        items={answers.map((answer) => answer.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {answers.map((answer) => (
+                          <SortableAnswerItem
+                            key={answer.id}
+                            answer={answer}
+                            onDelete={deleteAnswerMutation.mutate}
+                          />
+                        ))}
+                      </SortableContext>
+                    </DndContext>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p className="text-sm">Нет вариантов ответов</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Block List Component
+interface BlocksViewProps {
+  onSelectBlock: (block: Block) => void;
+}
+
+function BlocksView({ onSelectBlock }: BlocksViewProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [editingBlock, setEditingBlock] = useState<Block | null>(null);
+  const [newBlockName, setNewBlockName] = useState("");
+  const [hasCalculator, setHasCalculator] = useState(false);
+  const [hasPeriodicTable, setHasPeriodicTable] = useState(false);
+
+  const { data: blocks = [], isLoading } = useQuery({
+    queryKey: ["/api/blocks"],
+    queryFn: async (): Promise<Block[]> => {
+      const res = await apiRequest("GET", "/api/blocks");
+      return await res.json();
+    },
+  });
+
+  const createBlockMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/blocks", {
+        name: newBlockName,
+        hasCalculator,
+        hasPeriodicTable,
       });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      setNewBlockName("");
+      setHasCalculator(false);
+      setHasPeriodicTable(false);
+      toast({ title: "Успешно", description: "Блок создан" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось создать блок", variant: "destructive" });
+    },
+  });
+
+  const updateBlockMutation = useMutation({
+    mutationFn: async (block: Block) => {
+      await apiRequest("PUT", `/api/blocks/${block.id}`, block);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      setEditingBlock(null);
+      toast({ title: "Успешно", description: "Блок обновлен" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось обновить блок", variant: "destructive" });
+    },
+  });
+
+  const deleteBlockMutation = useMutation({
+    mutationFn: async (blockId: string) => {
+      await apiRequest("DELETE", `/api/blocks/${blockId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      toast({ title: "Успешно", description: "Блок удален" });
+    },
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось удалить блок", variant: "destructive" });
+    },
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiRequest("POST", "/api/blocks/reorder", { ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      toast({ title: "Ошибка", description: "Не удалось изменить порядок", variant: "destructive" });
+    },
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = blocks.findIndex((b) => b.id === active.id);
+      const newIndex = blocks.findIndex((b) => b.id === over.id);
+
+      const newBlocks = arrayMove(blocks, oldIndex, newIndex);
+      queryClient.setQueryData(["/api/blocks"], newBlocks);
+      reorderMutation.mutate(newBlocks.map((b) => b.id));
+    }
+  };
+
+  const filteredBlocks = blocks.filter((block) =>
+    block.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Search */}
+      <Input
+        placeholder="Поиск блоков..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="max-w-md"
+      />
+
+      {/* Add Block Dialog */}
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button className="w-full">
+            <Plus className="mr-2 h-4 w-4" />
+            Добавить блок
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Создать блок</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="blockName">Название блока</Label>
+              <Input
+                id="blockName"
+                value={newBlockName}
+                onChange={(e) => setNewBlockName(e.target.value)}
+                placeholder="Введите название"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="calculator"
+                checked={hasCalculator}
+                onCheckedChange={setHasCalculator}
+              />
+              <Label htmlFor="calculator">Калькулятор</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="periodicTable"
+                checked={hasPeriodicTable}
+                onCheckedChange={setHasPeriodicTable}
+              />
+              <Label htmlFor="periodicTable">Таблица Менделеева</Label>
+            </div>
+            <Button
+              onClick={() => createBlockMutation.mutate()}
+              disabled={!newBlockName.trim() || createBlockMutation.isPending}
+              className="w-full"
+            >
+              Создать
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Blocks List */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={filteredBlocks.map((b) => b.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {filteredBlocks.map((block) => (
+            <SortableCard key={block.id} id={block.id}>
+              {({ attributes, listeners }) => (
+                <div className="flex items-center gap-2 min-h-[60px] w-full">
+                  {/* Drag handle - отдельная кликабельная область */}
+                  <div 
+                    className="cursor-grab active:cursor-grabbing p-2 flex items-center self-stretch" 
+                    {...attributes} 
+                    {...listeners}
+                  >
+                    <GripVertical className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  
+                  {/* Основная кликабельная область - занимает все доступное пространство */}
+                  <div 
+                    className="flex-1 flex items-center gap-2 cursor-pointer hover:text-primary hover:bg-muted/50 rounded-md transition-colors self-stretch px-3"
+                    onClick={() => onSelectBlock(block)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">{block.name}</div>
+                      <div className="flex gap-1 mt-1">
+                        {block.hasCalculator && (
+                          <Badge variant="outline" className="text-xs">
+                            <Calculator className="h-3 w-3 mr-1" />
+                            Калькулятор
+                          </Badge>
+                        )}
+                        {block.hasPeriodicTable && (
+                          <Badge variant="outline" className="text-xs">
+                            <Atom className="h-3 w-3 mr-1" />
+                            Таблица Менделеева
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                <Dialog open={editingBlock?.id === block.id} onOpenChange={(open) => !open && setEditingBlock(null)}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingBlock(block);
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Редактировать блок</DialogTitle>
+                    </DialogHeader>
+                    {editingBlock && (
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="editBlockName">Название блока</Label>
+                          <Input
+                            id="editBlockName"
+                            value={editingBlock.name}
+                            onChange={(e) =>
+                              setEditingBlock({ ...editingBlock, name: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id="editCalculator"
+                            checked={editingBlock.hasCalculator ?? false}
+                            onCheckedChange={(checked) =>
+                              setEditingBlock({ ...editingBlock, hasCalculator: checked })
+                            }
+                          />
+                          <Label htmlFor="editCalculator">Калькулятор</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id="editPeriodicTable"
+                            checked={editingBlock.hasPeriodicTable ?? false}
+                            onCheckedChange={(checked) =>
+                              setEditingBlock({ ...editingBlock, hasPeriodicTable: checked })
+                            }
+                          />
+                          <Label htmlFor="editPeriodicTable">Таблица Менделеева</Label>
+                        </div>
+                        <Button
+                          onClick={() => updateBlockMutation.mutate(editingBlock)}
+                          disabled={updateBlockMutation.isPending}
+                          className="w-full"
+                        >
+                          Сохранить
+                        </Button>
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Удалить блок "${block.name}"?`)) {
+                      deleteBlockMutation.mutate(block.id);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+                  </div>
+                </div>
+              )}
+            </SortableCard>
+          ))}
+        </SortableContext>
+      </DndContext>
+
+      {filteredBlocks.length === 0 && (
+        <div className="text-center text-muted-foreground py-12">
+          {search ? "Блоки не найдены" : "Нет блоков. Создайте первый блок."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Main Content Manager Component
+export function ContentManager() {
+  const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null);
+  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
+  const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
+
+  // Reset navigation when going back
+  const handleBackToBlocks = () => {
+    setSelectedBlock(null);
+    setSelectedVariant(null);
+    setSelectedSubject(null);
+    setSelectedQuestion(null);
+  };
+
+  const handleBackToVariants = () => {
+    setSelectedVariant(null);
+    setSelectedSubject(null);
+    setSelectedQuestion(null);
+  };
+
+  const handleBackToSubjects = () => {
+    setSelectedSubject(null);
+    setSelectedQuestion(null);
+  };
+
+  const handleBackToQuestions = () => {
+    setSelectedQuestion(null);
+  };
+
+  // Breadcrumbs
+  const renderBreadcrumbs = () => {
+    const crumbs = [];
+    
+    if (selectedBlock) {
+      crumbs.push(
+        <Button key="blocks" variant="link" onClick={handleBackToBlocks} className="p-0 h-auto">
+          Блоки
+        </Button>
+      );
+      crumbs.push(<span key="sep1" className="mx-2">/</span>);
+      crumbs.push(
+        <Button key="block" variant="link" onClick={() => !selectedVariant && handleBackToBlocks()} className="p-0 h-auto">
+          {selectedBlock.name}
+        </Button>
+      );
+    }
+
+    if (selectedVariant) {
+      crumbs.push(<span key="sep2" className="mx-2">/</span>);
+      crumbs.push(
+        <Button key="variant" variant="link" onClick={() => !selectedSubject && handleBackToVariants()} className="p-0 h-auto">
+          {selectedVariant.name}
+        </Button>
+      );
+    }
+
+    if (selectedSubject) {
+      crumbs.push(<span key="sep3" className="mx-2">/</span>);
+      crumbs.push(
+        <Button key="subject" variant="link" onClick={() => !selectedQuestion && handleBackToSubjects()} className="p-0 h-auto">
+          {selectedSubject.name}
+        </Button>
+      );
+    }
+
+    if (selectedQuestion) {
+      crumbs.push(<span key="sep4" className="mx-2">/</span>);
+      crumbs.push(<span key="question" className="font-semibold">Редактирование вопроса</span>);
+    }
+
+    return crumbs.length > 0 ? (
+      <div className="mb-6 flex items-center text-sm">
+        {crumbs}
+      </div>
+    ) : null;
+  };
+
+  return (
+    <div>
+      {renderBreadcrumbs()}
       
-      res.json({ message: "Админ создан успешно", user: { username: adminUser.username, email: adminUser.email } });
-    } catch (error) {
-      console.error('[API] Error creating admin:', error);
-      res.status(500).json({ message: "Ошибка создания админа" });
-    }
-  });
+      {!selectedBlock && (
+        <BlocksView onSelectBlock={setSelectedBlock} />
+      )}
 
-  // Make current user admin (temporary, remove after first use)
-  app.post("/api/make-me-admin", requireAuth, async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      
-      const userId = req.user.id;
-      
-      // Import db from ./db
-      const { db } = await import('./db');
-      const { users } = await import('@shared/schema');
-      const { eq } = await import('drizzle-orm');
-      
-      // Update username to "admin" to grant admin privileges
-      const result = await db.update(users)
-        .set({ username: 'admin' })
-        .where(eq(users.id, userId))
-        .returning({ id: users.id, username: users.username, email: users.email });
-      
-      if (result.length > 0) {
-        res.json({ message: "You are now admin! Please re-login with username 'admin'.", user: result[0] });
-      } else {
-        res.status(404).json({ message: "User not found" });
-      }
-    } catch (error) {
-      console.error('[API] Error making user admin:', error);
-      res.status(500).json({ message: "Error updating user: " + (error as Error).message });
-    }
-  });
-  
-  // System settings endpoints
-  app.get("/api/settings/:key", async (req, res) => {
-    try {
-      const { key } = req.params;
-      const setting = await storage.getSystemSetting(key);
-      
-      if (!setting) {
-        return res.status(404).json({ message: "Настройка не найдена" });
-      }
-      
-      res.json({ key: setting.key, value: setting.value });
-    } catch (error) {
-      console.error('[API] Error fetching setting:', error);
-      res.status(500).json({ message: "Ошибка получения настройки" });
-    }
-  });
+      {selectedBlock && !selectedVariant && (
+        <VariantsView block={selectedBlock} onSelectVariant={setSelectedVariant} />
+      )}
 
-  app.put("/api/admin/settings/:key", requireAdmin, async (req, res) => {
-    try {
-      const { key } = req.params;
-      const { value } = req.body;
-      
-      if (!value) {
-        return res.status(400).json({ message: "Значение обязательно" });
-      }
-      
-      const setting = await storage.updateSystemSetting(key, value, req.user!.id);
-      res.json(setting);
-    } catch (error) {
-      console.error('[API] Error updating setting:', error);
-      res.status(500).json({ message: "Ошибка обновления настройки" });
-    }
-  });
+      {selectedVariant && !selectedSubject && (
+        <SubjectsView variant={selectedVariant} onSelectSubject={setSelectedSubject} />
+      )}
 
-  // Admin user management endpoints
-  app.get("/api/admin/users", requireAdmin, async (req, res) => {
-    try {
-      console.log('[API] Fetching all users...');
-      const users = await storage.getAllUsers();
-      console.log('[API] Users found:', users.length);
-      res.json(users);
-    } catch (error) {
-      console.error('[API] Error fetching users:', error);
-      res.status(500).json({ message: "Ошибка получения пользователей" });
-    }
-  });
+      {selectedSubject && !selectedQuestion && (
+        <QuestionsView subject={selectedSubject} variant={selectedVariant!} onSelectQuestion={setSelectedQuestion} />
+      )}
 
-  app.delete("/api/admin/users/:userId", requireAdmin, async (req, res) => {
-    try {
-      const { userId } = req.params;
-      
-      // Prevent deletion of admin user
-      const user = await storage.getUserById(userId);
-      if (user?.username === "admin") {
-        return res.status(403).json({ message: "Нельзя удалить администратора" });
-      }
-      
-      await storage.deleteUser(userId);
-      res.status(204).send();
-    } catch (error) {
-      console.error('[API] Error deleting user:', error);
-      res.status(500).json({ message: "Ошибка удаления пользователя" });
-    }
-  });
-
-  app.post("/api/admin/users/:userId/reset-password", requireAdmin, async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const newPassword = await storage.resetUserPassword(userId);
-      res.json({ newPassword });
-    } catch (error) {
-      console.error('[API] Error resetting password:', error);
-      res.status(500).json({ message: "Ошибка сброса пароля" });
-    }
-  });
-
-  // Copy subjects between variants endpoint
-  app.post("/api/admin/copy-subjects", requireAdmin, async (req, res) => {
-    try {
-      const { sourceVariantId, targetVariantId, subjectIds } = req.body;
-      
-      if (!sourceVariantId || !targetVariantId || !subjectIds || !Array.isArray(subjectIds)) {
-        return res.status(400).json({ 
-          message: "Требуются sourceVariantId, targetVariantId и массив subjectIds" 
-        });
-      }
-
-      console.log('[API] Copying subjects:', { sourceVariantId, targetVariantId, subjectIds });
-      
-      const copiedSubjects = await storage.copySubjects(sourceVariantId, targetVariantId, subjectIds);
-      
-      res.json({ 
-        message: "Предметы успешно скопированы",
-        copiedSubjects: copiedSubjects.length,
-        subjects: copiedSubjects
-      });
-    } catch (error) {
-      console.error('[API] Error copying subjects:', error);
-      res.status(500).json({ message: "Ошибка копирования предметов" });
-    }
-  });
-
-  // Quotes management endpoints
-  app.get("/api/quotes", async (req, res) => {
-    try {
-      const quotes = await storage.getAllQuotes();
-      res.json(quotes);
-    } catch (error) {
-      console.error('[API] Error fetching quotes:', error);
-      res.status(500).json({ message: "Ошибка загрузки цитат" });
-    }
-  });
-
-  app.get("/api/quotes/month/:month", async (req, res) => {
-    try {
-      const month = parseInt(req.params.month);
-      if (month < 1 || month > 12) {
-        return res.status(400).json({ message: "Месяц должен быть от 1 до 12" });
-      }
-      const quotes = await storage.getQuotesByMonth(month);
-      res.json(quotes);
-    } catch (error) {
-      console.error('[API] Error fetching quotes for month:', error);
-      res.status(500).json({ message: "Ошибка загрузки цитат" });
-    }
-  });
-
-  app.get("/api/quotes/current", async (req, res) => {
-    try {
-      const quote = await storage.getCurrentQuote();
-      res.json(quote);
-    } catch (error) {
-      console.error('[API] Error fetching current quote:', error);
-      res.status(500).json({ message: "Ошибка загрузки цитаты" });
-    }
-  });
-
-  app.post("/api/admin/quotes", requireAdmin, async (req, res) => {
-    try {
-      const { text, author, month } = req.body;
-      if (!text || !author || !month) {
-        return res.status(400).json({ message: "Требуются text, author и month" });
-      }
-      const quote = await storage.createQuote({ text, author, month, order: 0 });
-      res.status(201).json(quote);
-    } catch (error) {
-      console.error('[API] Error creating quote:', error);
-      res.status(500).json({ message: "Ошибка создания цитаты" });
-    }
-  });
-
-  app.put("/api/admin/quotes/:id", requireAdmin, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { text, author, month } = req.body;
-      const quote = await storage.updateQuote(id, { text, author, month });
-      res.json(quote);
-    } catch (error) {
-      console.error('[API] Error updating quote:', error);
-      res.status(500).json({ message: "Ошибка обновления цитаты" });
-    }
-  });
-
-  app.delete("/api/admin/quotes/:id", requireAdmin, async (req, res) => {
-    try {
-      const { id } = req.params;
-      await storage.deleteQuote(id);
-      res.status(204).send();
-    } catch (error) {
-      console.error('[API] Error deleting quote:', error);
-      res.status(500).json({ message: "Ошибка удаления цитаты" });
-    }
-  });
-
-  app.post("/api/admin/quotes/reorder", requireAdmin, async (req, res) => {
-    try {
-      const { month, ids } = req.body;
-      if (!month || !ids || !Array.isArray(ids)) {
-        return res.status(400).json({ message: "Требуются month и массив ids" });
-      }
-      await storage.reorderQuotes(month, ids);
-      res.json({ message: "Порядок цитат обновлен" });
-    } catch (error) {
-      console.error('[API] Error reordering quotes:', error);
-      res.status(500).json({ message: "Ошибка изменения порядка цитат" });
-    }
-  });
-
-  // =================== PAYMENT SYSTEM ROUTES ===================
-  
-  // Get all subscription plans
-  app.get("/api/subscription/plans", async (req, res) => {
-    try {
-      const plans = await storage.getSubscriptionPlans();
-      res.json(plans);
-    } catch (error) {
-      console.error('[API] Error fetching subscription plans:', error);
-      res.status(500).json({ message: "Ошибка загрузки тарифных планов" });
-    }
-  });
-
-  // Get current user subscription
-  app.get("/api/subscription/current", requireAuth, async (req, res) => {
-    try {
-      const subscription = await storage.getCurrentUserSubscription(req.user!.id);
-      if (!subscription) {
-        return res.status(404).json({ message: "Подписка не найдена" });
-      }
-      res.json(subscription);
-    } catch (error) {
-      console.error('[API] Error fetching current subscription:', error);
-      res.status(500).json({ message: "Ошибка загрузки подписки" });
-    }
-  });
-
-  // Create payment for subscription
-  app.post("/api/payments/create", requireAuth, async (req, res) => {
-    try {
-      const { planId } = req.body;
-      if (!planId) {
-        return res.status(400).json({ message: "Требуется planId" });
-      }
-
-      const plan = await storage.getSubscriptionPlan(planId);
-      if (!plan) {
-        return res.status(404).json({ message: "Тарифный план не найден" });
-      }
-
-      // Создаем запись платежа
-      const payment = await storage.createPayment({
-        userId: req.user!.id,
-        planId: planId,
-        amount: plan.price,
-        currency: plan.currency,
-        status: "PENDING",
-        paymentMethod: "card", // По умолчанию карта
-      });
-
-      // TODO: Интеграция с платежной системой (Stripe, Yookassa и т.д.)
-      // Пока возвращаем mock URL для тестирования
-      const paymentUrl = `/payment/${payment.id}?mock=true`;
-
-      res.json({
-        paymentId: payment.id,
-        paymentUrl: paymentUrl,
-        amount: plan.price,
-        currency: plan.currency,
-      });
-    } catch (error) {
-      console.error('[API] Error creating payment:', error);
-      res.status(500).json({ message: "Ошибка создания платежа" });
-    }
-  });
-
-  // Mock payment completion (для тестирования)
-  app.post("/api/payments/:paymentId/complete", async (req, res) => {
-    try {
-      const { paymentId } = req.params;
-      const payment = await storage.getPayment(paymentId);
-      
-      if (!payment) {
-        return res.status(404).json({ message: "Платеж не найден" });
-      }
-
-      // Обновляем статус платежа
-      await storage.updatePaymentStatus(paymentId, "COMPLETED");
-
-      // Создаем или обновляем подписку пользователя
-      const plan = await storage.getSubscriptionPlan(payment.planId);
-      if (plan) {
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(startDate.getDate() + plan.durationDays);
-
-        await storage.createOrUpdateUserSubscription({
-          userId: payment.userId,
-          planId: payment.planId,
-          blockId: plan.blockId, // Сохраняем blockId из плана
-          status: "ACTIVE",
-          startDate: startDate,
-          endDate: endDate,
-          autoRenew: false,
-        });
-      }
-
-      res.json({ success: true, message: "Платеж успешно обработан" });
-    } catch (error) {
-      console.error('[API] Error completing payment:', error);
-      res.status(500).json({ message: "Ошибка обработки платежа" });
-    }
-  });
-
-  // Admin: Get all subscription plans
-  app.get("/api/admin/subscription/plans", requireAdmin, async (req, res) => {
-    try {
-      const plans = await storage.getSubscriptionPlans();
-      res.json(plans);
-    } catch (error) {
-      console.error('[API] Error fetching subscription plans:', error);
-      res.status(500).json({ message: "Ошибка загрузки тарифных планов" });
-    }
-  });
-
-  // Admin: Create subscription plan
-  app.post("/api/admin/subscription/plans", requireAdmin, async (req, res) => {
-    try {
-      const plan = await storage.createSubscriptionPlan(req.body);
-      res.status(201).json(plan);
-    } catch (error) {
-      console.error('[API] Error creating subscription plan:', error);
-      res.status(500).json({ message: "Ошибка создания тарифного плана" });
-    }
-  });
-
-  // Admin: Update subscription plan
-  app.put("/api/admin/subscription/plans/:id", requireAdmin, async (req, res) => {
-    try {
-      const plan = await storage.updateSubscriptionPlan(req.params.id, req.body);
-      res.json(plan);
-    } catch (error) {
-      console.error('[API] Error updating subscription plan:', error);
-      res.status(500).json({ message: "Ошибка обновления тарифного плана" });
-    }
-  });
-
-  // Admin: Get all payments
-  app.get("/api/admin/payments", requireAdmin, async (req, res) => {
-    try {
-      const payments = await storage.getAllPayments();
-      res.json(payments);
-    } catch (error) {
-      console.error('[API] Error fetching payments:', error);
-      res.status(500).json({ message: "Ошибка загрузки платежей" });
-    }
-  });
-
-  // Admin: Get all user subscriptions
-  app.get("/api/admin/subscriptions", requireAdmin, async (req, res) => {
-    try {
-      const subscriptions = await storage.getAllUserSubscriptions();
-      res.json(subscriptions);
-    } catch (error) {
-      console.error('[API] Error fetching subscriptions:', error);
-      res.status(500).json({ message: "Ошибка загрузки подписок" });
-    }
-  });
-
-  // Check access to block
-  app.get("/api/subscription/block-access/:blockId", requireAuth, async (req, res) => {
-    try {
-      const { blockId } = req.params;
-      const hasAccess = await storage.hasBlockAccess(req.user!.id, blockId);
-      res.json({ hasAccess });
-    } catch (error) {
-      console.error('[API] Error checking block access:', error);
-      res.status(500).json({ message: "Ошибка проверки доступа" });
-    }
-  });
-
-  // Check single test access
-  app.get("/api/subscription/single-test-access", requireAuth, async (req, res) => {
-    try {
-      const hasAccess = await storage.hasSingleTestAccess(req.user!.id);
-      res.json({ hasAccess });
-    } catch (error) {
-      console.error('[API] Error checking single test access:', error);
-      res.status(500).json({ message: "Ошибка проверки доступа к тесту" });
-    }
-  });
-
-  const httpServer = createServer(app);
-  return httpServer;
+      {selectedQuestion && (
+        <QuestionEditor question={selectedQuestion} subject={selectedSubject!} onBack={handleBackToQuestions} />
+      )}
+    </div>
+  );
 }
