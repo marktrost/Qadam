@@ -980,31 +980,45 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     },
   });
 
-  // В компоненте QuestionsView найдите этот код и ЗАМЕНИТЕ его:
-  const toggleAnswerCorrectness = useMutation({
+    // В компоненте QuestionsView найдите этот код и ЗАМЕНИТЕ его:
+    const toggleAnswerCorrectness = useMutation({
     mutationFn: async ({ answerId, isCorrect }: { answerId: string; isCorrect: boolean }) => {
       await apiRequest("PUT", `/api/answers/${answerId}`, { isCorrect });
     },
     onMutate: async ({ answerId, isCorrect }) => {
-      // ОТМЕНЯЕМ текущие запросы чтобы не было конфликтов
-      await queryClient.cancelQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
+      // Находим questionId для этого ответа
+      let targetQuestionId: string | null = null;
       
-      // СОХРАНЯЕМ старое состояние на случай ошибки
-      const previousAnswers = queryClient.getQueryData([`/api/questions/${questionId}/answers`]);
+      // Ищем в раскрытых вопросах
+      for (const questionId of expandedQuestions) {
+        const questionAnswers = queryClient.getQueryData([`/api/questions/${questionId}/answers`]) as Answer[];
+        if (questionAnswers?.some(a => a.id === answerId)) {
+          targetQuestionId = questionId;
+          break;
+        }
+      }
       
-      // ОПТИМИСТИЧЕСКОЕ ОБНОВЛЕНИЕ - сразу меняем UI
-      queryClient.setQueryData([`/api/questions/${questionId}/answers`], (old: Answer[]) => 
+      if (!targetQuestionId) return;
+      
+      // Отменяем текущие запросы
+      await queryClient.cancelQueries({ queryKey: [`/api/questions/${targetQuestionId}/answers`] });
+      
+      // Сохраняем старое состояние
+      const previousAnswers = queryClient.getQueryData([`/api/questions/${targetQuestionId}/answers`]);
+      
+      // Оптимистическое обновление
+      queryClient.setQueryData([`/api/questions/${targetQuestionId}/answers`], (old: Answer[]) => 
         old.map(answer => 
           answer.id === answerId ? { ...answer, isCorrect } : answer
         )
       );
       
-      return { previousAnswers };
+      return { previousAnswers, targetQuestionId };
     },
     onError: (err, variables, context) => {
-      // ЕСЛИ ОШИБКА - возвращаем старое состояние
-      if (context?.previousAnswers) {
-        queryClient.setQueryData([`/api/questions/${questionId}/answers`], context.previousAnswers);
+      // Возвращаем старое состояние при ошибке
+      if (context?.previousAnswers && context.targetQuestionId) {
+        queryClient.setQueryData([`/api/questions/${context.targetQuestionId}/answers`], context.previousAnswers);
       }
       toast({ 
         title: "Ошибка", 
@@ -1015,9 +1029,11 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     onSuccess: () => {
       toast({ title: "Успешно", description: "Правильность ответа изменена" });
     },
-    onSettled: () => {
-      // ПОСЛЕ ВСЕГО - обновляем данные с сервера чтобы убедиться в актуальности
-      queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
+    onSettled: (data, error, variables, context) => {
+      // Обновляем данные с сервера
+      if (context?.targetQuestionId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/questions/${context.targetQuestionId}/answers`] });
+      }
     }
   });
 
