@@ -980,61 +980,20 @@ function QuestionsView({ subject, variant, onSelectQuestion }: QuestionsViewProp
     },
   });
 
-    // В компоненте QuestionsView найдите этот код и ЗАМЕНИТЕ его:
-    const toggleAnswerCorrectness = useMutation({
+  const toggleAnswerCorrectness = useMutation({
     mutationFn: async ({ answerId, isCorrect }: { answerId: string; isCorrect: boolean }) => {
       await apiRequest("PUT", `/api/answers/${answerId}`, { isCorrect });
     },
-    onMutate: async ({ answerId, isCorrect }) => {
-      // Находим questionId для этого ответа
-      let targetQuestionId: string | null = null;
-      
-      // Ищем в раскрытых вопросах
-      for (const questionId of expandedQuestions) {
-        const questionAnswers = queryClient.getQueryData([`/api/questions/${questionId}/answers`]) as Answer[];
-        if (questionAnswers?.some(a => a.id === answerId)) {
-          targetQuestionId = questionId;
-          break;
-        }
-      }
-      
-      if (!targetQuestionId) return;
-      
-      // Отменяем текущие запросы
-      await queryClient.cancelQueries({ queryKey: [`/api/questions/${targetQuestionId}/answers`] });
-      
-      // Сохраняем старое состояние
-      const previousAnswers = queryClient.getQueryData([`/api/questions/${targetQuestionId}/answers`]);
-      
-      // Оптимистическое обновление
-      queryClient.setQueryData([`/api/questions/${targetQuestionId}/answers`], (old: Answer[]) => 
-        old.map(answer => 
-          answer.id === answerId ? { ...answer, isCorrect } : answer
-        )
-      );
-      
-      return { previousAnswers, targetQuestionId };
-    },
-    onError: (err, variables, context) => {
-      // Возвращаем старое состояние при ошибке
-      if (context?.previousAnswers && context.targetQuestionId) {
-        queryClient.setQueryData([`/api/questions/${context.targetQuestionId}/answers`], context.previousAnswers);
-      }
-      toast({ 
-        title: "Ошибка", 
-        description: "Не удалось изменить правильность ответа", 
-        variant: "destructive" 
-      });
-    },
     onSuccess: () => {
+      // Перезагружаем ответы для всех раскрытых вопросов
+      expandedQuestions.forEach(questionId => {
+        queryClient.invalidateQueries({ queryKey: [`/api/questions/${questionId}/answers`] });
+      });
       toast({ title: "Успешно", description: "Правильность ответа изменена" });
     },
-    onSettled: (data, error, variables, context) => {
-      // Обновляем данные с сервера
-      if (context?.targetQuestionId) {
-        queryClient.invalidateQueries({ queryKey: [`/api/questions/${context.targetQuestionId}/answers`] });
-      }
-    }
+    onError: () => {
+      toast({ title: "Ошибка", description: "Не удалось изменить правильность ответа", variant: "destructive" });
+    },
   });
 
   const deleteAnswerMutation = useMutation({
