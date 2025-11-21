@@ -356,15 +356,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!question.text || !Array.isArray(question.answers)) {
           return res.status(400).json({ message: "Каждый вопрос должен содержать text и answers" });
         }
-        
-        if (question.answers.length !== 5 && question.answers.length !== 8) {
-          return res.status(400).json({ message: "Количество ответов должно быть 5 или 8" });
+  
+        // ИЗМЕНЕНИЕ: теперь 4 или 8 ответов вместо 5 или 8
+        if (question.answers.length !== 4 && question.answers.length !== 8) {
+          return res.status(400).json({ message: "Количество ответов должно быть 4 или 8" });
         }
 
         const correctAnswers = question.answers.filter((a: any) => a.isCorrect);
-        if (question.answers.length === 5 && correctAnswers.length !== 1) {
-          return res.status(400).json({ message: "Для 5 ответов должен быть 1 правильный" });
+  
+        // ИЗМЕНЕНИЕ: для 4 ответов должен быть 1 правильный
+        if (question.answers.length === 4 && correctAnswers.length !== 1) {
+          return res.status(400).json({ message: "Для 4 ответов должен быть 1 правильный" });
         }
+  
+        // Для 8 ответов остается 3 правильных
         if (question.answers.length === 8 && correctAnswers.length !== 3) {
           return res.status(400).json({ message: "Для 8 ответов должно быть 3 правильных" });
         }
@@ -630,7 +635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Get user's answer(s) - can be array for multiple choice or single ID
           const userAnswer = answers[question.id];
           
-          if (answerCount === 5) {
+          if (answerCount === 4) {
             // Single choice: 1 correct answer
             if (userAnswer && !Array.isArray(userAnswer)) {
               const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
