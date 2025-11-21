@@ -587,8 +587,7 @@ function SubjectsView({ variant, onSelectSubject }: SubjectsViewProps) {
         { "text": "I = U/R", "isCorrect": true },
         { "text": "U = I/R", "isCorrect": false },
         { "text": "R = U*I", "isCorrect": false },
-        { "text": "P = U*I", "isCorrect": false },
-        { "text": "V = I*R", "isCorrect": false }
+        { "text": "P = U*I", "isCorrect": false }
       ]
     }
   ]
