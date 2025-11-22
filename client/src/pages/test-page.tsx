@@ -545,40 +545,31 @@ export default function TestPage() {
   };
 
   const currentQuestionInfo = getQuestionNumberInSubject(currentQuestionIndex);
-
+  
   const handleAnswerSelect = (questionId: string, answerId: string) => {
     const question = allQuestions.find(q => q.id === questionId);
     if (!question) return;
     
-    const isMultipleChoice = question.answers.length === 8;
-    
-    if (isMultipleChoice) {
-      // Multiple choice: toggle answer in array
-      setUserAnswers(prev => {
-        const current = prev[questionId];
-        const currentArray = Array.isArray(current) ? current : [];
-        
-        if (currentArray.includes(answerId)) {
-          // Remove if already selected
-          return {
-            ...prev,
-            [questionId]: currentArray.filter(id => id !== answerId),
-          };
-        } else {
-          // Add if not selected
-          return {
-            ...prev,
-            [questionId]: [...currentArray, answerId],
-          };
-        }
-      });
-    } else {
-      // Single choice: replace with new answer
-      setUserAnswers(prev => ({
-        ...prev,
-        [questionId]: answerId,
-      }));
-    }
+    // ВСЕГДА используем multiple choice логику - пользователь может выбрать несколько ответов
+    // Multiple choice: toggle answer in array
+    setUserAnswers(prev => {
+      const current = prev[questionId];
+      const currentArray = Array.isArray(current) ? current : [];
+      
+      if (currentArray.includes(answerId)) {
+        // Remove if already selected
+        return {
+          ...prev,
+          [questionId]: currentArray.filter(id => id !== answerId),
+        };
+      } else {
+        // Add if not selected
+        return {
+          ...prev,
+          [questionId]: [...currentArray, answerId],
+        };
+      }
+    });
   };
 
   const handleSubmitTest = () => {
@@ -729,12 +720,15 @@ export default function TestPage() {
                       {currentQuestion?.text}
                     </div>
                     
-                    {/* Multiple choice hint */}
-                    {currentQuestion?.answers.length === 8 && !isReviewMode && (
-                      <div className="mt-2 text-sm text-muted-foreground italic">
-                        Выберите 3 правильных ответа (2 балла за полностью верный ответ)
-                      </div>
-                    )}
+                  {/* Multiple choice hint */}
+                  {currentQuestion?.answers.length >= 2 && !isReviewMode && (
+                    <div className="mt-2 text-sm text-muted-foreground italic">
+                      {(() => {
+                        const correctCount = currentQuestion.answers.filter(a => a.isCorrect).length;
+                        return `Выберите ${correctCount} правильных ответа. 1 балл за полностью верный ответ.`;
+                      })()}
+                    </div>
+                  )}
                   </div>
                   
                   {/* Изображение вопроса справа */}
@@ -761,10 +755,12 @@ export default function TestPage() {
                     const isMultipleChoice = currentQuestion.answers.length === 8;
                     
                     // Определяем, выбран ли этот ответ
+                    // УБИРАЕМ эту проверку:
+                    // const isMultipleChoice = currentQuestion.answers.length === 8;
+                    
+                    // ВСЕГДА используем multiple choice логику для отображения
                     const userAnswer = userAnswers[currentQuestion.id];
-                    const isSelected = isMultipleChoice 
-                      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-                      : userAnswer === answer.id;
+                    const isSelected = Array.isArray(userAnswer) && userAnswer.includes(answer.id);
                     
                     // Определяем стиль для режима просмотра результатов
                     const getAnswerStyle = () => {
