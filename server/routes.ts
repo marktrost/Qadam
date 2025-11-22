@@ -343,51 +343,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	  try {
 	    const { variantId, bulkData } = req.body;
 	    
+	    // Проверяем, что переданы обязательные поля
 	    if (!variantId || !bulkData) {
-	      return res.status(400).json({ message: "variantId и bulkData обязательны" });
+	      return res.status(400).json({ 
+	        message: "Не переданы обязательные данные: variantId и bulkData" 
+	      });
 	    }
 	
-	    // Validate bulk data structure
+	    // Проверяем структуру bulkData
 	    if (!bulkData.name || !Array.isArray(bulkData.questions)) {
-	      return res.status(400).json({ message: "Неверная структура данных. Требуются поля: name, questions" });
+	      return res.status(400).json({ 
+	        message: "Неверная структура данных. Должны быть поля: name (название предмета) и questions (массив вопросов)" 
+	      });
 	    }
 	
-	    // Validate questions structure
+	    // Проверяем каждый вопрос в массиве
 	    for (const question of bulkData.questions) {
+	      // Проверяем, что у вопроса есть текст и массив ответов
 	      if (!question.text || !Array.isArray(question.answers)) {
-	        return res.status(400).json({ message: "Каждый вопрос должен содержать text и answers" });
+	        return res.status(400).json({ 
+	          message: "Каждый вопрос должен содержать text (текст вопроса) и answers (массив ответов)" 
+	        });
 	      }
 	      
-	      // УБИРАЕМ ограничение на количество ответов
-	      // if (question.answers.length !== 5 && question.answers.length !== 8) {
-	      //   return res.status(400).json({ message: "Количество ответов должно быть 5 или 8" });
-	      // }
+	      // Проверяем количество ответов в вопросе
+	      // Должно быть от 2 до 8 ответов
+	      if (question.answers.length < 2) {
+	        return res.status(400).json({ 
+	          message: `Вопрос должен содержать минимум 2 ответа. В вопросе "${question.text.substring(0, 50)}..." только ${question.answers.length} ответов` 
+	        });
+	      }
+	      
+	      if (question.answers.length > 8) {
+	        return res.status(400).json({ 
+	          message: `Вопрос должен содержать максимум 8 ответов. В вопросе "${question.text.substring(0, 50)}..." ${question.answers.length} ответов` 
+	        });
+	      }
 	
+	      // Находим все правильные ответы в этом вопросе
 	      const correctAnswers = question.answers.filter((a: any) => a.isCorrect);
 	      
-	      // УБИРАЕМ старую логику проверки правильных ответов
-	      // if (question.answers.length === 5 && correctAnswers.length !== 1) {
-	      //   return res.status(400).json({ message: "Для 5 ответов должен быть 1 правильный" });
-	      // }
-	      // if (question.answers.length === 8 && correctAnswers.length !== 3) {
-	      //   return res.status(400).json({ message: "Для 8 ответов должно быть 3 правильных" });
-	      // }
+	      // Проверяем количество правильных ответов
+	      // Должно быть от 1 до 3 правильных ответов
+	      if (correctAnswers.length < 1) {
+	        return res.status(400).json({ 
+	          message: `Вопрос должен иметь хотя бы 1 правильный ответ. В вопросе "${question.text.substring(0, 50)}..." нет правильных ответов` 
+	        });
+	      }
 	      
-	      // НОВАЯ ПРОВЕРКА: должен быть хотя бы один правильный ответ
-	      if (correctAnswers.length === 0) {
-	        return res.status(400).json({ message: "Каждый вопрос должен иметь хотя бы один правильный ответ" });
+	      if (correctAnswers.length > 3) {
+	        return res.status(400).json({ 
+	          message: `Вопрос должен иметь не более 3 правильных ответов. В вопросе "${question.text.substring(0, 50)}..." ${correctAnswers.length} правильных ответов` 
+	        });
+	      }
+	
+	      // Дополнительная проверка: каждый ответ должен иметь текст
+	      for (const answer of question.answers) {
+	        if (!answer.text || answer.text.trim() === '') {
+	          return res.status(400).json({ 
+	            message: "Все ответы должны содержать текст (не может быть пустым)" 
+	          });
+	        }
 	      }
 	    }
 	
-	    // Остальной код без изменений...
-	    // Create subject
+	    // Если все проверки пройдены, создаем предмет
 	    const subjectData = insertSubjectSchema.parse({
 	      name: bulkData.name,
 	      variantId: variantId
 	    });
 	    const subject = await storage.createSubject(subjectData);
 	
-	    // Create questions and answers
+	    // Создаем вопросы и ответы
 	    for (let i = 0; i < bulkData.questions.length; i++) {
 	      const questionData = bulkData.questions[i];
 	      
@@ -399,7 +426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        solutionImageUrl: null
 	      });
 	
-	      // Create answers
+	      // Создаем ответы для этого вопроса
 	      for (let j = 0; j < questionData.answers.length; j++) {
 	        const answerData = questionData.answers[j];
 	        await storage.createAnswer({
@@ -411,17 +438,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	      }
 	    }
 	
+	    // Возвращаем успешный результат
 	    res.status(201).json({ 
 	      success: true, 
 	      subject,  
-	      questionsCount: bulkData.questions.length 
+	      questionsCount: bulkData.questions.length,
+	      message: `Предмет "${bulkData.name}" успешно создан с ${bulkData.questions.length} вопросами`
 	    });
 	  } catch (error) {
 	    console.error("Bulk import error:", error);
-	    res.status(500).json({ message: "Ошибка массовой загрузки" });
+	    res.status(500).json({ message: "Ошибка массовой загрузки данных" });
 	  }
 	});
-
   // Questions routes
   app.get("/api/subjects/:subjectId/questions", async (req, res) => {
     try {
