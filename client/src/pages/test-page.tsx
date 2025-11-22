@@ -771,33 +771,23 @@ export default function TestPage() {
                 
 				<div className="space-y-3">
 				  {currentQuestion?.answers.map((answer, index) => {
-				    const hasMultipleAnswers = currentQuestion.answers.length >= 4;
+					const correctAnswersCount = currentQuestion.answers.filter(a => a.isCorrect).length;
+					const hasMultipleAnswers = correctAnswersCount > 1;
+					console.log('🔍 ТИП ВОПРОСА:', {
+					  totalAnswers: currentQuestion.answers.length,
+					  correctAnswersCount: correctAnswersCount,
+					  hasMultipleAnswers: hasMultipleAnswers
+					});
 				    const userAnswer = userAnswers[currentQuestion.id];
 				    const computedIsSelected = hasMultipleAnswers 
 				  	  ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
 				  	  : userAnswer === answer.id;
 				
-				    console.log('🔍 ВЫЧИСЛЕНИЕ isSelected:', {
-					  answerId: answer.id,
-					  computedIsSelected: computedIsSelected,
-					  directComparison: userAnswer === answer.id,
-					  hasMultipleAnswers: hasMultipleAnswers
-				    });
+
 				    const isSelected = hasMultipleAnswers 
 				      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
 				      : userAnswer === answer.id;
 				
-					if (isReviewMode) {
-					  console.log('🔍 ДАННЫЕ ОТВЕТА:', {
-					    answerId: answer.id,
-					    isSelected: isSelected,
-					    userAnswer: userAnswer,
-					    userAnswerType: typeof userAnswer,
-					    isCorrect: answer.isCorrect,
-					    comparison: userAnswer === answer.id,
-					    index: index
-					  });
-					}
 				
 				    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
 				    
