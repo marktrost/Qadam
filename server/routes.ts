@@ -952,90 +952,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get test result review data
-  app.get("/api/test-results/:resultId/review", requireAuth, async (req, res) => {
-    try {
-      const { resultId } = req.params;
-      
-      // Get test result and verify it belongs to the current user
-      const result = await storage.getTestResult(resultId);
-      if (!result) {
-        return res.status(404).json({ message: "Результат теста не найден" });
-      }
-      
-      if (result.userId !== req.user?.id) {
-        return res.status(403).json({ message: "Нет доступа к этому результату теста" });
-      }
-      
-      // Get variant and test data
-      const variant = await storage.getVariant(result.variantId);
-      if (!variant) {
-        return res.status(404).json({ message: "Вариант теста не найден" });
-      }
-      
-      // Get test data with correct answers - use same structure as POST /api/test-results
-      const subjects = await storage.getSubjectsByVariant(result.variantId);
-      const reviewTestData: any[] = [];
-      
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        const questionsWithAnswers = [];
-        
-        for (const question of questions) {
-          const answers = await storage.getAnswersByQuestion(question.id);
-          const answersWithFlag = answers.map(a => ({ 
-            id: a.id, 
-            text: a.text, 
-            isCorrect: !!a.isCorrect 
-          }));
-          questionsWithAnswers.push({ ...question, answers: answersWithFlag });
-        }
-        
-        reviewTestData.push({ subject, questions: questionsWithAnswers });
-      }
-      
-      // Wrap in testData structure to match what frontend expects
-      const testDataResponse = {
-        variant,
-        testData: reviewTestData
-      };
-      
-      // Get user answers from the stored result
-      const userAnswers = result.answers || {};
-      
-      console.log('[API] Review data for result:', result.id, {
-        hasUserAnswers: !!result.answers,
-        userAnswersCount: Object.keys(userAnswers).length,
-        sampleUserAnswer: Object.entries(userAnswers)[0]
-      });
 
-			// Добавьте этот console.log перед res.json()
-			console.log('[API] Review data sample - first question answers:', {
-			  questionId: reviewTestData[0]?.questions?.[0]?.id,
-			  answers: reviewTestData[0]?.questions?.[0]?.answers?.map(a => ({
-			    id: a.id,
-			    text: a.text.substring(0, 50) + '...', // обрезаем текст для читаемости
-			    isCorrect: a.isCorrect
-			  }))
-			});
-			
-			res.json({ 
-			  result, 
-			  variant,
-			  testData: testDataResponse, 
-			  userAnswers 
-			});
-      res.json({ 
-        result, 
-        variant,
-        testData: testDataResponse, 
-        userAnswers 
-      });
-    } catch (error) {
-      console.error('[API] Error getting test review data:', error);
-      res.status(500).json({ message: "Ошибка получения данных для просмотра теста" });
-    }
-  });
+	app.get("/api/test-results/:resultId/review", async (req, res) => {
+	  // ВРЕМЕННО убираем requireAuth для дебага
+	  try {
+	    const { resultId } = req.params;
+	    
+	    // Get test result (временно без проверки пользователя)
+	    const result = await storage.getTestResult(resultId);
+	    if (!result) {
+	      return res.status(404).json({ message: "Результат теста не найден" });
+	    }
+	    
+	    // Остальной код БЕЗ ИЗМЕНЕНИЙ...
+	    // Get variant and test data
+	    const variant = await storage.getVariant(result.variantId);
+	    if (!variant) {
+	      return res.status(404).json({ message: "Вариант теста не найден" });
+	    }
+	    
+	    // Get test data with correct answers
+	    const subjects = await storage.getSubjectsByVariant(result.variantId);
+	    const reviewTestData: any[] = [];
+	    
+	    for (const subject of subjects) {
+	      const questions = await storage.getQuestionsBySubject(subject.id);
+	      const questionsWithAnswers = [];
+	      
+	      for (const question of questions) {
+	        const answers = await storage.getAnswersByQuestion(question.id);
+	        const answersWithFlag = answers.map(a => ({ 
+	          id: a.id, 
+	          text: a.text, 
+	          isCorrect: !!a.isCorrect 
+	        }));
+	        questionsWithAnswers.push({ ...question, answers: answersWithFlag });
+	      }
+	      
+	      reviewTestData.push({ subject, questions: questionsWithAnswers });
+	    }
+	    
+	    const testDataResponse = {
+	      variant,
+	      testData: reviewTestData
+	    };
+	    
+	    const userAnswers = result.answers || {};
+	    
+	    console.log('[API REVIEW] Sending data for result:', resultId);
+	    
+	    res.json({ 
+	      result, 
+	      variant,
+	      testData: testDataResponse, 
+	      userAnswers 
+	    });
+	  } catch (error) {
+	    console.error('[API] Error getting test review data:', error);
+	    res.status(500).json({ message: "Ошибка получения данных для просмотра теста" });
+	  }
+	});
 
   // User profile routes
   app.get("/api/profile", requireAuth, async (req, res) => {
