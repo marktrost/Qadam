@@ -204,8 +204,25 @@ export default function TestPage() {
 
   // В режиме просмотра используем ТОЛЬКО данные из reviewTestData (API)
   const finalTestData = useMemo(() => {
-    return isReviewMode ? reviewTestData : testData;
+    if (isReviewMode) {
+      // В режиме просмотра данные должны приходить с сервера с флагами isCorrect
+      return reviewTestData;
+    }
+    return testData;
   }, [isReviewMode, reviewTestData, testData]);
+  // Debug для проверки данных в режиме просмотра
+  useEffect(() => {
+    if (isReviewMode && finalTestData) {
+      console.log('[REVIEW MODE DEBUG] finalTestData:', finalTestData);
+      if (finalTestData.testData && finalTestData.testData.length > 0) {
+        const firstQuestion = finalTestData.testData[0]?.questions?.[0];
+        if (firstQuestion) {
+          console.log('[REVIEW MODE DEBUG] First question answers:', firstQuestion.answers);
+          console.log('[REVIEW MODE DEBUG] Has isCorrect flags:', firstQuestion.answers.some(a => a.hasOwnProperty('isCorrect')));
+        }
+      }
+    }
+  }, [isReviewMode, finalTestData]);
 
   // МЕМОИЗАЦИЯ: вычисляем allQuestions только когда finalTestData меняется
   const allQuestions = useMemo(() => {
@@ -496,25 +513,43 @@ export default function TestPage() {
     : !!(finalTestData && finalTestData.variant && finalTestData.variant.block && finalTestData.testData);
   
   if (!hasRequiredData) {
-
+    console.error('[TEST PAGE] Missing required data:', {
+      isReviewMode,
+      hasFinalTestData: !!finalTestData,
+      hasVariant: !!finalTestData?.variant,
+      hasTestData: !!finalTestData?.testData,
+      testDataLength: finalTestData?.testData?.length,
+      variantBlock: finalTestData?.variant?.block
+    });
     
     return (
       <div className="min-h-screen bg-background">
         <main className="container mx-auto px-4 lg:px-6 py-8">
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-foreground mb-4">Тест не найден</h1>
+            <h1 className="text-2xl font-bold text-foreground mb-4">
+              {isReviewMode ? 'Ошибка загрузки результатов' : 'Тест не найден'}
+            </h1>
             <p className="text-muted-foreground mb-4">
-              {isReviewMode ? 'Ошибка в режиме просмотра результатов' : 'Ошибка загрузки теста'}
+              {isReviewMode 
+                ? 'Не удалось загрузить данные для просмотра теста. Попробуйте вернуться к результатам.'
+                : 'Ошибка загрузки теста'
+              }
             </p>
-            <Button onClick={() => setLocation("/")} data-testid="button-back-home">
-              Вернуться на главную
-            </Button>
+            <div className="space-y-2">
+              <Button onClick={() => setLocation("/")}>
+                Вернуться на главную
+              </Button>
+              {isReviewMode && (
+                <Button variant="outline" onClick={() => setLocation("/results")}>
+                  Назад к результатам
+                </Button>
+              )}
+            </div>
           </div>
         </main>
       </div>
     );
   }
-
   // Краткое логирование данных в режиме просмотра
   if (isReviewMode && testData) {
   }
@@ -763,21 +798,30 @@ export default function TestPage() {
                     const isSelected = Array.isArray(userAnswer) && userAnswer.includes(answer.id);
                     
                     // Определяем стиль для режима просмотра результатов
+                    // Определяем стиль для режима просмотра результатов
                     const getAnswerStyle = () => {
                       // Режим тестирования (не просмотр результатов)
                       if (!isReviewMode) {
                         if (isSelected) {
-                          // Выбранный ответ - синяя подсветка
                           return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-blue-500 cursor-pointer transition-colors text-left flex items-start gap-3";
                         }
-                        // Обычный невыбранный ответ
                         return "w-full p-4 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors text-left flex items-start gap-3";
                       }
                       
-                      const isUserAnswer = isMultipleChoice
-                        ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-                        : userAnswer === answer.id;
-                      const isCorrectAnswer = answer.isCorrect === true;
+                      // РЕЖИМ ПРОСМОТРА - исправленная логика
+                      const isUserAnswer = Array.isArray(userAnswer) && userAnswer.includes(answer.id);
+                      let isCorrectAnswer = false;
+                      
+                      // Пытаемся определить правильный ответ разными способами
+                      if (answer.isCorrect !== undefined) {
+                        // Если есть прямое поле isCorrect
+                        isCorrectAnswer = answer.isCorrect === true;
+                      } else if (currentQuestion.answers) {
+                        // Если нет поля isCorrect, пытаемся вычислить из контекста
+                        // В режиме просмотра правильные ответы обычно помечаются сервером
+                        // Или можем использовать альтернативные методы определения
+                        isCorrectAnswer = false; // временно, пока не получим данные
+                      }
                       
                       if (isUserAnswer && isCorrectAnswer) {
                         // Мой правильный ответ - синий
