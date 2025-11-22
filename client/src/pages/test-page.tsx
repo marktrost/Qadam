@@ -776,7 +776,15 @@ export default function TestPage() {
 					  const isSelected = hasMultipleAnswers 
 					    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
 					    : userAnswer === answer.id;
-					
+						if (index === 0 && isReviewMode) {
+						  console.log('🔍 ДАННЫЕ ОТВЕТА:', {
+							answerId: answer.id,
+							isSelected: isSelected,
+							userAnswer: userAnswer,
+							isCorrect: answer.isCorrect,
+							hasIsCorrect: answer.hasIsCorrect
+						  });
+						}
 					  // ПРОСТАЯ логика стилей БЕЗ вложенной функции
 					  let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
 					  
