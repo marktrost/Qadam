@@ -632,29 +632,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        totalQuestions++;
 	        const questionAnswers = await storage.getAnswersByQuestion(question.id);
 	        
-	        // НОВАЯ ЛОГИКА: каждый вопрос дает 1 балл
+	        // Каждый вопрос дает 1 балл
 	        const questionPoints = 1;
 	        totalPoints += questionPoints;
 	        
 	        const correctAnswers = questionAnswers.filter(a => a.isCorrect);
+	        const correctAnswerIds = correctAnswers.map(a => a.id);
 	        
-	        // Get user's answer(s)
+	        // Получаем ответы пользователя - ВСЕГДА как массив
 	        const userAnswer = answers[question.id];
+	        const userSelectedIds = Array.isArray(userAnswer) ? userAnswer : (userAnswer ? [userAnswer] : []);
 	        
-	        if (Array.isArray(userAnswer)) {
-	          // Multiple choice answers
-	          const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
-	          const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
-	          const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
+	        if (userSelectedIds.length > 0) {
+	          const selectedCorrect = userSelectedIds.filter(id => correctAnswerIds.includes(id));
+	          const selectedWrong = userSelectedIds.filter(id => !correctAnswerIds.includes(id));
 	          
-	          // НОВАЯ ЛОГИКА: 1 балл только если все правильные выбраны и нет неправильных
-	          if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
-	            earnedPoints += 1;
-	          }
-	        } else if (userAnswer) {
-	          // Single choice answer
-	          const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
-	          if (selectedAnswer?.isCorrect) {
+	          // Условие для получения 1 балла:
+	          // 1. Выбраны ВСЕ правильные ответы
+	          // 2. НЕ выбрано НИ ОДНОГО неправильного ответа  
+	          // 3. Количество выбранных ответов РАВНО количеству правильных
+	          if (selectedCorrect.length === correctAnswerIds.length && 
+	              selectedWrong.length === 0 &&
+	              userSelectedIds.length === correctAnswerIds.length) {
 	            earnedPoints += 1;
 	          }
 	        }
@@ -728,9 +727,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-// В routes.ts найти блок подсчета баллов и заменить его:
-
-	// В POST /api/test-results и POST /api/public/test-results заменить логику подсчета:
 	app.post("/api/test-results", requireAuth, async (req, res) => {
 	  try {
 	    const { variantId, answers, timeSpent } = req.body;
@@ -759,44 +755,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        totalQuestions++;
 	        const questionAnswers = await storage.getAnswersByQuestion(question.id);
 	        
-	        // НОВАЯ ЛОГИКА: каждый вопрос дает 1 балл независимо от количества ответов
-	        const questionPoints = 1; // Все вопросы теперь стоят 1 балл
+	        // Каждый вопрос дает 1 балл
+	        const questionPoints = 1;
 	        totalPoints += questionPoints;
 	        
 	        const correctAnswers = questionAnswers.filter(a => a.isCorrect);
-	        console.log(`[DEBUG] Question ${question.id}: ${questionAnswers.length} answers, ${correctAnswers.length} correct, worth ${questionPoints} points`);
+	        const correctAnswerIds = correctAnswers.map(a => a.id);
 	        
-	        // Get user's answer(s) - can be array for multiple choice or single ID
+	        // Получаем ответы пользователя - ВСЕГДА как массив
 	        const userAnswer = answers[question.id];
-	        console.log(`[DEBUG] User answer for question ${question.id}:`, userAnswer);
+	        const userSelectedIds = Array.isArray(userAnswer) ? userAnswer : (userAnswer ? [userAnswer] : []);
 	        
-	        if (Array.isArray(userAnswer)) {
-	          // Multiple choice answers
-	          const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
-	          const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
-	          const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
+	        console.log(`[DEBUG] Question ${question.id}:`, {
+	          correctAnswerIds,
+	          userSelectedIds,
+	          correctCount: correctAnswers.length,
+	          userSelectedCount: userSelectedIds.length
+	        });
+	        
+	        if (userSelectedIds.length > 0) {
+	          const selectedCorrect = userSelectedIds.filter(id => correctAnswerIds.includes(id));
+	          const selectedWrong = userSelectedIds.filter(id => !correctAnswerIds.includes(id));
 	          
-	          console.log(`[DEBUG] Multiple choice - selected ${selectedAnswers.length} answers: ${selectedCorrect.length} correct, ${selectedWrong.length} wrong`);
+	          console.log(`[DEBUG] Selected: ${selectedCorrect.length} correct, ${selectedWrong.length} wrong`);
 	          
-	          // НОВАЯ ЛОГИКА: 1 балл только если все правильные выбраны и нет неправильных
-	          if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
+	          // Условие для получения 1 балла:
+	          // 1. Выбраны ВСЕ правильные ответы
+	          // 2. НЕ выбрано НИ ОДНОГО неправильного ответа  
+	          // 3. Количество выбранных ответов РАВНО количеству правильных
+	          if (selectedCorrect.length === correctAnswerIds.length && 
+	              selectedWrong.length === 0 &&
+	              userSelectedIds.length === correctAnswerIds.length) {
 	            earnedPoints += 1;
-	            console.log(`[DEBUG] Perfect! Earned 1 point. Total: ${earnedPoints}`);
+	            console.log(`[DEBUG] PERFECT! Earned 1 point. Total: ${earnedPoints}`);
 	          } else {
-	            console.log(`[DEBUG] Incomplete or has wrong answers, 0 points`);
-	          }
-	        } else if (userAnswer) {
-	          // Single choice answer
-	          const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
-	          console.log(`[DEBUG] Single choice - selected answer:`, selectedAnswer);
-	          if (selectedAnswer?.isCorrect) {
-	            earnedPoints += 1;
-	            console.log(`[DEBUG] Correct! Earned 1 point. Total: ${earnedPoints}`);
-	          } else {
-	            console.log(`[DEBUG] Wrong answer, 0 points`);
+	            console.log(`[DEBUG] Not perfect: wrong answers or missing correct answers, 0 points`);
 	          }
 	        } else {
-	          console.log(`[DEBUG] No answer provided, 0 points`);
+	          console.log(`[DEBUG] No answers selected, 0 points`);
 	        }
 	      }
 	    }
@@ -892,7 +888,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	    }
 	
 	    // Return created result plus full testData with correct flags and the user's answers
-	    // Wrap in testData structure to match what frontend expects
 	    const testDataResponse = {
 	      variant: await storage.getVariant(variantId),
 	      testData: reviewTestData
