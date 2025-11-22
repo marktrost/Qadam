@@ -204,25 +204,8 @@ export default function TestPage() {
 
   // В режиме просмотра используем ТОЛЬКО данные из reviewTestData (API)
   const finalTestData = useMemo(() => {
-    if (isReviewMode) {
-      // В режиме просмотра данные должны приходить с сервера с флагами isCorrect
-      return reviewTestData;
-    }
-    return testData;
+    return isReviewMode ? reviewTestData : testData;
   }, [isReviewMode, reviewTestData, testData]);
-  // Debug для проверки данных в режиме просмотра
-  useEffect(() => {
-    if (isReviewMode && finalTestData) {
-      console.log('[REVIEW MODE DEBUG] finalTestData:', finalTestData);
-      if (finalTestData.testData && finalTestData.testData.length > 0) {
-        const firstQuestion = finalTestData.testData[0]?.questions?.[0];
-        if (firstQuestion) {
-          console.log('[REVIEW MODE DEBUG] First question answers:', firstQuestion.answers);
-          console.log('[REVIEW MODE DEBUG] Has isCorrect flags:', firstQuestion.answers.some(a => a.hasOwnProperty('isCorrect')));
-        }
-      }
-    }
-  }, [isReviewMode, finalTestData]);
 
   // МЕМОИЗАЦИЯ: вычисляем allQuestions только когда finalTestData меняется
   const allQuestions = useMemo(() => {
@@ -513,43 +496,25 @@ export default function TestPage() {
     : !!(finalTestData && finalTestData.variant && finalTestData.variant.block && finalTestData.testData);
   
   if (!hasRequiredData) {
-    console.error('[TEST PAGE] Missing required data:', {
-      isReviewMode,
-      hasFinalTestData: !!finalTestData,
-      hasVariant: !!finalTestData?.variant,
-      hasTestData: !!finalTestData?.testData,
-      testDataLength: finalTestData?.testData?.length,
-      variantBlock: finalTestData?.variant?.block
-    });
+
     
     return (
       <div className="min-h-screen bg-background">
         <main className="container mx-auto px-4 lg:px-6 py-8">
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-foreground mb-4">
-              {isReviewMode ? 'Ошибка загрузки результатов' : 'Тест не найден'}
-            </h1>
+            <h1 className="text-2xl font-bold text-foreground mb-4">Тест не найден</h1>
             <p className="text-muted-foreground mb-4">
-              {isReviewMode 
-                ? 'Не удалось загрузить данные для просмотра теста. Попробуйте вернуться к результатам.'
-                : 'Ошибка загрузки теста'
-              }
+              {isReviewMode ? 'Ошибка в режиме просмотра результатов' : 'Ошибка загрузки теста'}
             </p>
-            <div className="space-y-2">
-              <Button onClick={() => setLocation("/")}>
-                Вернуться на главную
-              </Button>
-              {isReviewMode && (
-                <Button variant="outline" onClick={() => setLocation("/results")}>
-                  Назад к результатам
-                </Button>
-              )}
-            </div>
+            <Button onClick={() => setLocation("/")} data-testid="button-back-home">
+              Вернуться на главную
+            </Button>
           </div>
         </main>
       </div>
     );
   }
+
   // Краткое логирование данных в режиме просмотра
   if (isReviewMode && testData) {
   }
@@ -580,31 +545,40 @@ export default function TestPage() {
   };
 
   const currentQuestionInfo = getQuestionNumberInSubject(currentQuestionIndex);
-  
+
   const handleAnswerSelect = (questionId: string, answerId: string) => {
     const question = allQuestions.find(q => q.id === questionId);
     if (!question) return;
     
-    // ВСЕГДА используем multiple choice логику - пользователь может выбрать несколько ответов
-    // Multiple choice: toggle answer in array
-    setUserAnswers(prev => {
-      const current = prev[questionId];
-      const currentArray = Array.isArray(current) ? current : [];
-      
-      if (currentArray.includes(answerId)) {
-        // Remove if already selected
-        return {
-          ...prev,
-          [questionId]: currentArray.filter(id => id !== answerId),
-        };
-      } else {
-        // Add if not selected
-        return {
-          ...prev,
-          [questionId]: [...currentArray, answerId],
-        };
-      }
-    });
+    const isMultipleChoice = question.answers.length === 8;
+    
+    if (isMultipleChoice) {
+      // Multiple choice: toggle answer in array
+      setUserAnswers(prev => {
+        const current = prev[questionId];
+        const currentArray = Array.isArray(current) ? current : [];
+        
+        if (currentArray.includes(answerId)) {
+          // Remove if already selected
+          return {
+            ...prev,
+            [questionId]: currentArray.filter(id => id !== answerId),
+          };
+        } else {
+          // Add if not selected
+          return {
+            ...prev,
+            [questionId]: [...currentArray, answerId],
+          };
+        }
+      });
+    } else {
+      // Single choice: replace with new answer
+      setUserAnswers(prev => ({
+        ...prev,
+        [questionId]: answerId,
+      }));
+    }
   };
 
   const handleSubmitTest = () => {
@@ -755,15 +729,12 @@ export default function TestPage() {
                       {currentQuestion?.text}
                     </div>
                     
-                  {/* Multiple choice hint */}
-                  {currentQuestion?.answers.length >= 2 && !isReviewMode && (
-                    <div className="mt-2 text-sm text-muted-foreground italic">
-                      {(() => {
-                        const correctCount = currentQuestion.answers.filter(a => a.isCorrect).length;
-                        return `Выберите ${correctCount} правильных ответа. 1 балл за полностью верный ответ.`;
-                      })()}
-                    </div>
-                  )}
+                    {/* Multiple choice hint */}
+                    {currentQuestion?.answers.length === 8 && !isReviewMode && (
+                      <div className="mt-2 text-sm text-muted-foreground italic">
+                        Выберите 3 правильных ответа (2 балла за полностью верный ответ)
+                      </div>
+                    )}
                   </div>
                   
                   {/* Изображение вопроса справа */}
@@ -790,38 +761,27 @@ export default function TestPage() {
                     const isMultipleChoice = currentQuestion.answers.length === 8;
                     
                     // Определяем, выбран ли этот ответ
-                    // УБИРАЕМ эту проверку:
-                    // const isMultipleChoice = currentQuestion.answers.length === 8;
-                    
-                    // ВСЕГДА используем multiple choice логику для отображения
                     const userAnswer = userAnswers[currentQuestion.id];
-                    const isSelected = Array.isArray(userAnswer) && userAnswer.includes(answer.id);
+                    const isSelected = isMultipleChoice 
+                      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+                      : userAnswer === answer.id;
                     
-                    // Определяем стиль для режима просмотра результатов
                     // Определяем стиль для режима просмотра результатов
                     const getAnswerStyle = () => {
                       // Режим тестирования (не просмотр результатов)
                       if (!isReviewMode) {
                         if (isSelected) {
+                          // Выбранный ответ - синяя подсветка
                           return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-blue-500 cursor-pointer transition-colors text-left flex items-start gap-3";
                         }
+                        // Обычный невыбранный ответ
                         return "w-full p-4 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors text-left flex items-start gap-3";
                       }
                       
-                      // РЕЖИМ ПРОСМОТРА - исправленная логика
-                      const isUserAnswer = Array.isArray(userAnswer) && userAnswer.includes(answer.id);
-                      let isCorrectAnswer = false;
-                      
-                      // Пытаемся определить правильный ответ разными способами
-                      if (answer.isCorrect !== undefined) {
-                        // Если есть прямое поле isCorrect
-                        isCorrectAnswer = answer.isCorrect === true;
-                      } else if (currentQuestion.answers) {
-                        // Если нет поля isCorrect, пытаемся вычислить из контекста
-                        // В режиме просмотра правильные ответы обычно помечаются сервером
-                        // Или можем использовать альтернативные методы определения
-                        isCorrectAnswer = false; // временно, пока не получим данные
-                      }
+                      const isUserAnswer = isMultipleChoice
+                        ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+                        : userAnswer === answer.id;
+                      const isCorrectAnswer = answer.isCorrect === true;
                       
                       if (isUserAnswer && isCorrectAnswer) {
                         // Мой правильный ответ - синий
@@ -988,13 +948,25 @@ export default function TestPage() {
                         {submitTestMutation.isPending ? "Завершение..." : "Завершить тест"}
                       </Button>
                     ) : (
-                      <Button
-                        onClick={() => setCurrentQuestionIndex(Math.min(allQuestions.length - 1, currentQuestionIndex + 1))}
-                        data-testid="button-next-question"
-                      >
-                        Далее
-                        <i className="fas fa-chevron-right ml-2"></i>
-                      </Button>
+                      <>
+                        <Button
+                          onClick={() => setCurrentQuestionIndex(Math.min(allQuestions.length - 1, currentQuestionIndex + 1))}
+                          data-testid="button-next-question"
+                        >
+                          Далее
+                          <i className="fas fa-chevron-right ml-2"></i>
+                        </Button>
+                        {!isReviewMode && (
+                          <Button
+                            variant="ghost"
+                            onClick={handleSubmitTest}
+                            data-testid="button-inline-finish"
+                            className="ml-2 text-sm"
+                          >
+                            Завершить тест
+                          </Button>
+                        )}
+                      </>
                     )}
                     {isReviewMode && (
                       <Button
@@ -1109,4 +1081,3 @@ export default function TestPage() {
     </div>
   );
 }
-
