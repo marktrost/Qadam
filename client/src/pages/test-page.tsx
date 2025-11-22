@@ -948,25 +948,13 @@ export default function TestPage() {
                         {submitTestMutation.isPending ? "Завершение..." : "Завершить тест"}
                       </Button>
                     ) : (
-                      <>
-                        <Button
-                          onClick={() => setCurrentQuestionIndex(Math.min(allQuestions.length - 1, currentQuestionIndex + 1))}
-                          data-testid="button-next-question"
-                        >
-                          Далее
-                          <i className="fas fa-chevron-right ml-2"></i>
-                        </Button>
-                        {!isReviewMode && (
-                          <Button
-                            variant="ghost"
-                            onClick={handleSubmitTest}
-                            data-testid="button-inline-finish"
-                            className="ml-2 text-sm"
-                          >
-                            Завершить тест
-                          </Button>
-                        )}
-                      </>
+                      <Button
+                        onClick={() => setCurrentQuestionIndex(Math.min(allQuestions.length - 1, currentQuestionIndex + 1))}
+                        data-testid="button-next-question"
+                      >
+                        Далее
+                        <i className="fas fa-chevron-right ml-2"></i>
+                      </Button>
                     )}
                     {isReviewMode && (
                       <Button
