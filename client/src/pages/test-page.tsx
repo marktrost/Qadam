@@ -777,16 +777,17 @@ export default function TestPage() {
 				      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
 				      : userAnswer === answer.id;
 				
-				    if (index === 0 && isReviewMode) {
-				      console.log('🔍 ДАННЫЕ ОТВЕТА:', {
-				        answerId: answer.id,
-				        isSelected: isSelected,
-				        userAnswer: userAnswer,
-				        userAnswerType: typeof userAnswer,
-				        isCorrect: answer.isCorrect,
-				        comparison: userAnswer === answer.id
-				      });
-				    }
+					if (isReviewMode) {
+					  console.log('🔍 ДАННЫЕ ОТВЕТА:', {
+					    answerId: answer.id,
+					    isSelected: isSelected,
+					    userAnswer: userAnswer,
+					    userAnswerType: typeof userAnswer,
+					    isCorrect: answer.isCorrect,
+					    comparison: userAnswer === answer.id,
+					    index: index
+					  });
+					}
 				
 				    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
 				    
