@@ -783,37 +783,37 @@ export default function TestPage() {
                       : userAnswer === answer.id;  // Для одиночного выбора
                   
                     // Стиль ответа в зависимости от режима (тест/просмотр)
-										const getAnswerStyle = () => {
-										  // Режим тестирования (не просмотр результатов)
-										  if (!isReviewMode) {
-										    if (isSelected) {
-										      // ВЫБРАННЫЙ ОТВЕТ - как было в старом коде
-										      return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-foreground cursor-pointer transition-colors text-left flex items-start gap-3";
-										    }
-										    // Обычный невыбранный ответ
-										    return "w-full p-4 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors text-left flex items-start gap-3";
-										  }
-										  
-										  // Режим просмотра результатов
-										  const isUserAnswer = hasMultipleAnswers
-										    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-										    : userAnswer === answer.id;
-										  const isCorrectAnswer = answer.isCorrect === true;
-										  
-										  if (isUserAnswer && isCorrectAnswer) {
-										    // Мой правильный ответ - синий (как было)
-										    return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-blue-500 transition-colors text-left flex items-start gap-3";
-										  } else if (isUserAnswer && !isCorrectAnswer) {
-										    // Мой неправильный ответ - красный (как было)
-										    return "w-full p-4 rounded-lg border-2 border-red-500 bg-red-50 text-red-800 transition-colors text-left flex items-start gap-3";
-										  } else if (!isUserAnswer && isCorrectAnswer) {
-										    // Правильный ответ (где я не отвечал) - зеленый (как было)
-										    return "w-full p-4 rounded-lg border-2 border-green-500 bg-green-50 text-green-800 transition-colors text-left flex items-start gap-3";
-										  } else {
-										    // Неправильный ответ (где я не отвечал) - обычный серый
-										    return "w-full p-4 rounded-lg border border-border bg-muted/20 transition-colors opacity-60 text-left flex items-start gap-3";
-										  }
-										};
+					const getAnswerStyle = () => {
+					  // Режим тестирования (не просмотр результатов)
+					  if (!isReviewMode) {
+						if (isSelected) {
+						  // ВЫБРАННЫЙ ОТВЕТ - как было в старом коде
+						  return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-foreground cursor-pointer transition-colors text-left flex items-start gap-3";
+						}
+						// Обычный невыбранный ответ
+						return "w-full p-4 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors text-left flex items-start gap-3";
+					  }
+					  
+					  // Режим просмотра результатов
+					  const isUserAnswer = hasMultipleAnswers
+						? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+						: userAnswer === answer.id;
+					  const isCorrectAnswer = answer.isCorrect === true;
+					  
+					  if (isUserAnswer && isCorrectAnswer) {
+						// Мой правильный ответ - синий (как было)
+						return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-blue-500 transition-colors text-left flex items-start gap-3";
+					  } else if (isUserAnswer && !isCorrectAnswer) {
+						// Мой неправильный ответ - красный (как было)
+						return "w-full p-4 rounded-lg border-2 border-red-500 bg-red-50 text-red-800 transition-colors text-left flex items-start gap-3";
+					  } else if (!isUserAnswer && isCorrectAnswer) {
+						// Правильный ответ (где я не отвечал) - зеленый (как было)
+						return "w-full p-4 rounded-lg border-2 border-green-500 bg-green-50 text-green-800 transition-colors text-left flex items-start gap-3";
+					  } else {
+						// Неправильный ответ (где я не отвечал) - обычный серый
+						return "w-full p-4 rounded-lg border border-border bg-muted/20 transition-colors opacity-60 text-left flex items-start gap-3";
+					  }
+					};
 										                  
                     return (
                       <button
