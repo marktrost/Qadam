@@ -773,6 +773,16 @@ export default function TestPage() {
 				  {currentQuestion?.answers.map((answer, index) => {
 				    const hasMultipleAnswers = currentQuestion.answers.length >= 4;
 				    const userAnswer = userAnswers[currentQuestion.id];
+				    const computedIsSelected = hasMultipleAnswers 
+				  	  ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+				  	  : userAnswer === answer.id;
+				
+				    console.log('🔍 ВЫЧИСЛЕНИЕ isSelected:', {
+					  answerId: answer.id,
+					  computedIsSelected: computedIsSelected,
+					  directComparison: userAnswer === answer.id,
+					  hasMultipleAnswers: hasMultipleAnswers
+				    });
 				    const isSelected = hasMultipleAnswers 
 				      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
 				      : userAnswer === answer.id;
