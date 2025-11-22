@@ -773,16 +773,17 @@ export default function TestPage() {
 					{currentQuestion?.answers.map((answer, index) => {
 					  const hasMultipleAnswers = currentQuestion.answers.length >= 4;
 					  const userAnswer = userAnswers[currentQuestion.id];
-					  const isSelected = hasMultipleAnswers 
-					    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-					    : userAnswer === answer.id;
+						const isSelected = hasMultipleAnswers 
+						  ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+						  : userAnswer === answer.id;
 						if (index === 0 && isReviewMode) {
 						  console.log('🔍 ДАННЫЕ ОТВЕТА:', {
-							answerId: answer.id,
-							isSelected: isSelected,
-							userAnswer: userAnswer,
-							isCorrect: answer.isCorrect,
-							hasIsCorrect: answer.hasIsCorrect
+						    answerId: answer.id,
+						    isSelected: isSelected,
+						    userAnswer: userAnswer,
+						    userAnswerType: typeof userAnswer,
+						    isCorrect: answer.isCorrect,
+						    comparison: userAnswer === answer.id
 						  });
 						}
 					  // ПРОСТАЯ логика стилей БЕЗ вложенной функции
