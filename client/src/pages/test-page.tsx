@@ -770,85 +770,111 @@ export default function TestPage() {
                 </div>
                 
                 <div className="space-y-3">
-					{currentQuestion?.answers.map((answer, index) => {
-					  const hasMultipleAnswers = currentQuestion.answers.length >= 4;
-					  const userAnswer = userAnswers[currentQuestion.id];
-					  const isSelected = hasMultipleAnswers 
-					    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-					    : userAnswer === answer.id;
-					
-					  // ПРОСТАЯ логика стилей как в старом коде
-					  let answerStyle = "w-full p-4 rounded-lg border border-border text-left flex items-start gap-3 ";
-					  
-					  if (isReviewMode) {
-					    if (isSelected) {
-					      answerStyle += answer.isCorrect 
-					        ? "border-2 border-blue-500 bg-blue-50 text-foreground"
-					        : "border-2 border-red-500 bg-red-50 text-foreground";
-					    } else if (answer.isCorrect) {
-					      answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
-					    } else {
-					      answerStyle += "border border-gray-300 bg-gray-50 text-foreground opacity-60";
-					    }
-					  } else {
-					    // Режим тестирования
-					    answerStyle += isSelected 
-					      ? "border-2 border-blue-500 bg-blue-50 text-foreground cursor-pointer"
-					      : "border border-gray-300 hover:bg-muted/50 cursor-pointer";
+                  {currentQuestion?.answers.map((answer, index) => {
+                    // Определяем тип вопроса: если 4+ ответов - множественный выбор, иначе одиночный
+                    const hasMultipleAnswers = currentQuestion.answers.length >= 4;
+                    
+                    // Получаем ответ пользователя на этот вопрос
+                    const userAnswer = userAnswers[currentQuestion.id];
+                    
+                    // Проверяем, выбран ли этот ответ
+                    const isSelected = hasMultipleAnswers 
+                      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)  // Для множественного выбора
+                      : userAnswer === answer.id;  // Для одиночного выбора
+                  
+                    // Стиль ответа в зависимости от режима (тест/просмотр)
+					const getAnswerStyle = () => {
+					  // Режим тестирования (не просмотр результатов)
+					  if (!isReviewMode) {
+						if (isSelected) {
+						  // ВЫБРАННЫЙ ОТВЕТ - как было в старом коде
+						  return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-foreground cursor-pointer transition-colors text-left flex items-start gap-3";
+						}
+						// Обычный невыбранный ответ
+						return "w-full p-4 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors text-left flex items-start gap-3";
 					  }
-					
-					  return (
-					    <button
-					      key={answer.id}
-					      type="button"
-					      onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
-					      className={answerStyle}
-					      disabled={isReviewMode}
-					      data-testid={`button-answer-${answer.id}`}
-					    >
-					      {/* Checkbox or Radio indicator */}
-					      {!isReviewMode && (
-					        <div className="flex-shrink-0 mt-0.5">
-					          {hasMultipleAnswers ? (
-					            // Checkbox for multiple choice
-					            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-					              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
-					            }`}>
-					              {isSelected && <span className="text-white text-xs">✓</span>}
-					            </div>
-					          ) : (
-					            // Radio for single choice
-					            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-					              isSelected ? 'border-blue-500' : 'border-gray-400'
-					            }`}>
-					              {isSelected && <div className="w-3 h-3 rounded-full bg-blue-500"></div>}
-					            </div>
-					          )}
-					        </div>
-					      )}
-					      
-					      {/* Answer text */}
-					      <div className="flex-1 text-left">
-					        <span className="font-medium mr-3">
-					          {String.fromCharCode(65 + index)}.
-					        </span>
-					        {answer.text}
-					      </div>
-					      
-					      {/* Review mode indicators */}
-					      {isReviewMode && (() => {
-					        if (isSelected && answer.isCorrect) {
-					          return <span className="ml-2 text-blue-500 font-bold">✓</span>;
-					        } else if (isSelected && !answer.isCorrect) {
-					          return <span className="ml-2 text-red-600 font-bold">✗</span>;
-					        } else if (!isSelected && answer.isCorrect) {
-					          return <span className="ml-2 text-green-600 font-bold">✓</span>;
-					        }
-					        return null;
-					      })()}
-					    </button>
-					  );
-					})}
+					  
+					  // Режим просмотра результатов
+					  const isUserAnswer = hasMultipleAnswers
+						? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+						: userAnswer === answer.id;
+					  const isCorrectAnswer = answer.isCorrect === true;
+					  
+					  if (isUserAnswer && isCorrectAnswer) {
+						// Мой правильный ответ - синий (как было)
+						return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-blue-500 transition-colors text-left flex items-start gap-3";
+					  } else if (isUserAnswer && !isCorrectAnswer) {
+						// Мой неправильный ответ - красный (как было)
+						return "w-full p-4 rounded-lg border-2 border-red-500 bg-red-50 text-red-800 transition-colors text-left flex items-start gap-3";
+					  } else if (!isUserAnswer && isCorrectAnswer) {
+						// Правильный ответ (где я не отвечал) - зеленый (как было)
+						return "w-full p-4 rounded-lg border-2 border-green-500 bg-green-50 text-green-800 transition-colors text-left flex items-start gap-3";
+					  } else {
+						// Неправильный ответ (где я не отвечал) - обычный серый
+						return "w-full p-4 rounded-lg border border-border bg-muted/20 transition-colors opacity-60 text-left flex items-start gap-3";
+					  }
+					};
+										                  
+                    return (
+                      <button
+                        key={answer.id}
+                        type="button"
+                        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
+                        className={getAnswerStyle()}
+                        disabled={isReviewMode}
+                        data-testid={`button-answer-${answer.id}`}
+                      >
+                        {/* Индикатор выбора (чекбокс или радио) */}
+												{!isReviewMode && (
+												  <div className="flex-shrink-0 mt-0.5">
+												    {hasMultipleAnswers ? (
+												      // ЧЕКБОКС для множественного выбора (4+ ответов) - КВАДРАТ
+												      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+												        isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
+												      }`}>
+												        {isSelected && <span className="text-white text-xs">✓</span>}
+												      </div>
+												    ) : (
+												      // РАДИО-КНОПКА для одиночного выбора (1-3 ответа) - КРУГ
+												      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+												        isSelected ? 'border-blue-500' : 'border-gray-400'
+												      }`}>
+												        {isSelected && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
+												      </div>
+												    )}
+												  </div>
+												)}
+                        
+                        {/* Текст ответа */}
+                        <div className="flex-1">
+                          <span className="font-medium mr-3">
+                            {String.fromCharCode(65 + index)}.
+                          </span>
+                          {answer.text}
+                        </div>
+                        
+                        {/* Индикаторы в режиме просмотра */}
+												{isReviewMode && (() => {
+												  const isUserAnswer = hasMultipleAnswers
+												    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+												    : userAnswer === answer.id;
+												  const isCorrectAnswer = answer.isCorrect === true;
+												  
+												  if (isUserAnswer && isCorrectAnswer) {
+												    // Мой правильный ответ - синяя галочка
+												    return <span className="ml-2 text-blue-500 font-bold">✓</span>;
+												  } else if (isUserAnswer && !isCorrectAnswer) {
+												    // Мой неправильный ответ - красный крестик
+												    return <span className="ml-2 text-red-600 font-bold">✗</span>;
+												  } else if (!isUserAnswer && isCorrectAnswer) {
+												    // Правильный ответ где я не отвечал - зеленая галочка
+												    return <span className="ml-2 text-green-600 font-bold">✓</span>;
+												  }
+												  return null;
+												})()}
+                      </button>
+                    );
+                  })}
                 </div>
                 
                 {/* Изображение решения - показывается только в режиме просмотра результатов */}
