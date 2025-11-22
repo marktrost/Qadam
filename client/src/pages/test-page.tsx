@@ -86,6 +86,21 @@ export default function TestPage() {
   const [userAnswers, setUserAnswers] = useState<Record<string, string | string[]>>(
     isReviewMode ? (reviewUserAnswers || {}) : {}
   );
+	useEffect(() => {
+	  if (isReviewMode) {
+		console.log('📊 ВСЕ USERANSWERS:', userAnswers);
+		console.log('📊 Ключи userAnswers:', Object.keys(userAnswers));
+		
+		// Проверим конкретно текущий вопрос
+		if (currentQuestion) {
+		  console.log('📊 Ответ на текущий вопрос:', {
+			questionId: currentQuestion.id,
+			userAnswer: userAnswers[currentQuestion.id],
+			questionText: currentQuestion.text?.substring(0, 50)
+		  });
+		}
+	  }
+	}, [isReviewMode, userAnswers, currentQuestion]);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showPeriodicTable, setShowPeriodicTable] = useState(false);
   const [timeLeft, setTimeLeft] = useState(240 * 60); // 240 minutes in seconds
@@ -94,7 +109,6 @@ export default function TestPage() {
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
-
   // Мемоизированные callback для управления модальными окнами
   const handleCloseCalculator = useCallback(() => {
     setShowCalculator(false);
@@ -776,7 +790,16 @@ export default function TestPage() {
 					  const isSelected = hasMultipleAnswers 
 					    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
 					    : userAnswer === answer.id;
-					
+					  if (index === 0 && isReviewMode) {
+					    console.log('🎯 ОТЛАДКА ПОДСВЕТКИ:', {
+					      questionId: currentQuestion.id,
+					      userAnswer: userAnswer,
+					      currentAnswerId: answer.id, 
+					      isSelected: isSelected,
+					      isCorrect: answer.isCorrect,
+					      hasMultipleAnswers: hasMultipleAnswers,
+					      allAnswers: currentQuestion.answers.map(a => ({ id: a.id, isCorrect: a.isCorrect }))
+					    });
 					  // ПРОСТАЯ логика стилей БЕЗ вложенной функции
 					  let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
 					  
