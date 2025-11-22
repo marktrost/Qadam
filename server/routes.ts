@@ -638,60 +638,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	  try {
 	    const { variantId, answers, timeSpent } = req.body;
 	    
+	    // Проверяем, что все необходимые данные переданы
 	    if (!variantId || !answers || timeSpent === undefined) {
-	      return res.status(400).json({ message: "Недостаточно данных" });
+	      return res.status(400).json({ 
+	        message: "Недостаточно данных: нужны variantId, answers и timeSpent" 
+	      });
 	    }
 	
-	    // Verify this is a free variant
+	    // Проверяем, что это бесплатный вариант теста
 	    const variant = await storage.getVariant(variantId);
 	    if (!variant || !variant.isFree) {
-	      return res.status(403).json({ message: "Доступ к результатам этого теста требует авторизации" });
+	      return res.status(403).json({ 
+	        message: "Доступ к результатам этого теста требует авторизации" 
+	      });
 	    }
 	
-	    // Get all questions for this variant to calculate score
+	    // Получаем все вопросы для подсчета баллов
 	    const subjects = await storage.getSubjectsByVariant(variantId);
 	    let totalQuestions = 0;
 	    let totalPoints = 0;
 	    let earnedPoints = 0;
 	    
+	    console.log('[DEBUG] Подсчет баллов для гостевого теста:', variantId);
+	
+	    // Проходим по всем вопросам и подсчитываем баллы
 	    for (const subject of subjects) {
 	      const questions = await storage.getQuestionsBySubject(subject.id);
 	      for (const question of questions) {
 	        totalQuestions++;
 	        const questionAnswers = await storage.getAnswersByQuestion(question.id);
 	        
-	        // НОВАЯ ЛОГИКА: каждый вопрос дает 1 балл
+	        // КАЖДЫЙ вопрос дает 1 балл
 	        const questionPoints = 1;
 	        totalPoints += questionPoints;
 	        
+	        // Находим все правильные ответы
 	        const correctAnswers = questionAnswers.filter(a => a.isCorrect);
 	        
-	        // Get user's answer(s)
+	        // Получаем ответ пользователя
 	        const userAnswer = answers[question.id];
 	        
 	        if (Array.isArray(userAnswer)) {
-	          // Multiple choice answers
+	          // МНОЖЕСТВЕННЫЙ ВЫБОР (4+ ответов)
 	          const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
 	          const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
 	          const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
 	          
-	          // НОВАЯ ЛОГИКА: 1 балл только если все правильные выбраны и нет неправильных
+	          // 1 БАЛЛ только если ВСЕ правильные выбраны и НЕТ неправильных
 	          if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
 	            earnedPoints += 1;
 	          }
 	        } else if (userAnswer) {
-	          // Single choice answer
+	          // ОДИНОЧНЫЙ ВЫБОР (1-3 ответа)
 	          const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
 	          if (selectedAnswer?.isCorrect) {
 	            earnedPoints += 1;
 	          }
 	        }
+	        // Если ответ не предоставлен - 0 баллов
 	      }
 	    }
 	    
+	    // Вычисляем процент правильных ответов
 	    const percentage = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
 	    
-	    // Return results without saving to database (guest session)
+	    // Возвращаем результаты без сохранения в базу (гостевая сессия)
 	    const result = {
 	      variantId,
 	      score: earnedPoints,
@@ -699,12 +710,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	      totalPoints,
 	      percentage: Math.round(percentage),
 	      timeSpent,
-	      isGuestResult: true
+	      isGuestResult: true  // Помечаем как гостевой результат
 	    };
 	
 	    res.status(200).json(result);
+	    
 	  } catch (error) {
-	    res.status(500).json({ message: "Ошибка обработки результата" });
+	    console.error('[API] Ошибка обработки гостевого результата:', error);
+	    res.status(500).json({ message: "Ошибка обработки результата теста" });
 	  }
 	});
 
@@ -763,76 +776,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	  try {
 	    const { variantId, answers, timeSpent } = req.body;
 	    
-	    console.log('[DEBUG] Test submission received:', { variantId, timeSpent, answersCount: Object.keys(answers || {}).length });
+	    console.log('[DEBUG] Получены результаты теста:', { 
+	      variantId, 
+	      timeSpent, 
+	      количествоОтветов: Object.keys(answers || {}).length 
+	    });
 	    
+	    // Проверяем, что все необходимые данные переданы
 	    if (!variantId || !answers || timeSpent === undefined) {
-	      return res.status(400).json({ message: "Недостаточно данных" });
+	      return res.status(400).json({ 
+	        message: "Недостаточно данных: нужны variantId, answers и timeSpent" 
+	      });
 	    }
 	
-	    // Get all questions for this variant to calculate score
+	    // Получаем все вопросы для этого варианта теста
 	    const subjects = await storage.getSubjectsByVariant(variantId);
 	    let totalQuestions = 0;
 	    let totalPoints = 0;
 	    let earnedPoints = 0;
 	    
-	    console.log('[DEBUG] Starting score calculation for variant:', variantId);
-	    console.log('[DEBUG] Found subjects:', subjects.length);
-	    console.log('[DEBUG] User answers:', Object.keys(answers || {}).length, 'answers provided');
-	    
+	    console.log('[DEBUG] Начинаем подсчет баллов для варианта:', variantId);
+	    console.log('[DEBUG] Найдено предметов:', subjects.length);
+	
+	    // Проходим по всем вопросам и подсчитываем баллы
 	    for (const subject of subjects) {
 	      const questions = await storage.getQuestionsBySubject(subject.id);
-	      console.log(`[DEBUG] Subject ${subject.name}: ${questions.length} questions`);
+	      console.log(`[DEBUG] Предмет "${subject.name}": ${questions.length} вопросов`);
 	      
 	      for (const question of questions) {
 	        totalQuestions++;
 	        const questionAnswers = await storage.getAnswersByQuestion(question.id);
 	        
-	        // НОВАЯ ЛОГИКА: каждый вопрос дает 1 балл независимо от количества ответов
-	        const questionPoints = 1; // Все вопросы теперь стоят 1 балл
+	        // КАЖДЫЙ вопрос дает 1 балл независимо от типа
+	        const questionPoints = 1;
 	        totalPoints += questionPoints;
 	        
+	        // Находим все правильные ответы для этого вопроса
 	        const correctAnswers = questionAnswers.filter(a => a.isCorrect);
-	        console.log(`[DEBUG] Question ${question.id}: ${questionAnswers.length} answers, ${correctAnswers.length} correct, worth ${questionPoints} points`);
+	        console.log(`[DEBUG] Вопрос ${question.id}: ${questionAnswers.length} ответов, ${correctAnswers.length} правильных, стоит ${questionPoints} баллов`);
 	        
-	        // Get user's answer(s) - can be array for multiple choice or single ID
+	        // Получаем ответ пользователя на этот вопрос
 	        const userAnswer = answers[question.id];
-	        console.log(`[DEBUG] User answer for question ${question.id}:`, userAnswer);
+	        console.log(`[DEBUG] Ответ пользователя на вопрос ${question.id}:`, userAnswer);
 	        
 	        if (Array.isArray(userAnswer)) {
-	          // Multiple choice answers
+	          // МНОЖЕСТВЕННЫЙ ВЫБОР (4+ ответов в вопросе)
 	          const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
 	          const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
 	          const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
 	          
-	          console.log(`[DEBUG] Multiple choice - selected ${selectedAnswers.length} answers: ${selectedCorrect.length} correct, ${selectedWrong.length} wrong`);
+	          console.log(`[DEBUG] Множественный выбор - выбрано ${selectedAnswers.length} ответов: ${selectedCorrect.length} правильных, ${selectedWrong.length} неправильных`);
 	          
-	          // НОВАЯ ЛОГИКА: 1 балл только если все правильные выбраны и нет неправильных
+	          // 1 БАЛЛ только если ВСЕ правильные выбраны и НЕТ неправильных
 	          if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
 	            earnedPoints += 1;
-	            console.log(`[DEBUG] Perfect! Earned 1 point. Total: ${earnedPoints}`);
+	            console.log(`[DEBUG] ИДЕАЛЬНО! Получен 1 балл. Всего: ${earnedPoints}`);
 	          } else {
-	            console.log(`[DEBUG] Incomplete or has wrong answers, 0 points`);
+	            console.log(`[DEBUG] Неполный ответ или есть ошибки, 0 баллов`);
 	          }
 	        } else if (userAnswer) {
-	          // Single choice answer
+	          // ОДИНОЧНЫЙ ВЫБОР (1-3 ответа в вопросе)
 	          const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
-	          console.log(`[DEBUG] Single choice - selected answer:`, selectedAnswer);
+	          console.log(`[DEBUG] Одиночный выбор - выбран ответ:`, selectedAnswer);
 	          if (selectedAnswer?.isCorrect) {
 	            earnedPoints += 1;
-	            console.log(`[DEBUG] Correct! Earned 1 point. Total: ${earnedPoints}`);
+	            console.log(`[DEBUG] ПРАВИЛЬНО! Получен 1 балл. Всего: ${earnedPoints}`);
 	          } else {
-	            console.log(`[DEBUG] Wrong answer, 0 points`);
+	            console.log(`[DEBUG] Неправильный ответ, 0 баллов`);
 	          }
 	        } else {
-	          console.log(`[DEBUG] No answer provided, 0 points`);
+	          // Ответ не предоставлен
+	          console.log(`[DEBUG] Ответ не предоставлен, 0 баллов`);
 	        }
 	      }
 	    }
 	    
-	    console.log(`[DEBUG] Final calculation: ${earnedPoints}/${totalPoints} points = ${earnedPoints/totalPoints*100}%`);
+	    console.log(`[DEBUG] Итоговый подсчет: ${earnedPoints}/${totalPoints} баллов = ${(earnedPoints/totalPoints*100).toFixed(1)}%`);
 	    
+	    // Вычисляем процент правильных ответов
 	    const percentage = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
 	    
+	    // Сохраняем результат теста в базу данных
 	    const validatedData = insertTestResultSchema.parse({
 	      userId: req.user?.id,
 	      variantId,
@@ -845,49 +869,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	
 	    const result = await storage.createTestResult(validatedData);
 	    
-	    // Update user ranking
+	    // Обновляем рейтинг пользователя
 	    await storage.updateUserRanking(req.user?.id!);
 	
-	    // Update subject progress if provided
-	    if (req.body.subjectProgress) {
-	      for (const [subjectName, progress] of Object.entries(req.body.subjectProgress as Record<string, any>)) {
-	        await storage.updateSubjectProgress(
-	          req.user?.id!,
-	          subjectName,
-	          progress.totalAnswered,
-	          progress.correctAnswered
-	        );
-	      }
-	    }
-	
-	    // Build test data with correct flags to return for review
+	    // Собираем данные теста с правильными ответами для режима просмотра
 	    const reviewTestData: any[] = [];
 	    for (const subject of subjects) {
 	      const questions = await storage.getQuestionsBySubject(subject.id);
 	      const questionsWithAnswers = [];
 	      for (const question of questions) {
 	        const answers = await storage.getAnswersByQuestion(question.id);
-	        const answersWithFlag = answers.map(a => ({ id: a.id, text: a.text, isCorrect: !!a.isCorrect }));
+	        // Добавляем флаги isCorrect для отображения в режиме просмотра
+	        const answersWithFlag = answers.map(a => ({ 
+	          id: a.id, 
+	          text: a.text, 
+	          isCorrect: !!a.isCorrect 
+	        }));
 	        questionsWithAnswers.push({ ...question, answers: answersWithFlag });
 	      }
 	      reviewTestData.push({ subject, questions: questionsWithAnswers });
 	    }
 	
-	    // Create test completion notification
+	    // Создаем уведомление о завершении теста
 	    const variant = await storage.getVariant(variantId);
 	    if (variant) {
 	      let achievementMessage = "";
 	      if (percentage >= 90) {
 	        achievementMessage = " Отличная работа! 🌟";
 	      } else if (percentage >= 70) {
-	        achievementMessage = " Хорошо! 👍";
+	        achievementMessage = " Хороший результат! 👍";
 	      }
 	
 	      await storage.createNotification({
 	        userId: req.user?.id!,
 	        type: "TEST_COMPLETED",
 	        title: "Тест завершен",
-	        message: `Вы завершили тест ${variant.name}. Результат: ${earnedPoints}/${totalPoints} баллов (${Math.round(percentage)}%).${achievementMessage}`,
+	        message: `Вы завершили тест "${variant.name}". Результат: ${earnedPoints}/${totalPoints} баллов (${Math.round(percentage)}%).${achievementMessage}`,
 	        metadata: {
 	          testResultId: result.id,
 	          variantId: variant.id,
@@ -901,13 +918,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        channels: ["in_app"],
 	      });
 	
-	      // Create achievement notification for high scores
+	      // Создаем уведомление о достижении для высоких результатов
 	      if (percentage >= 95) {
 	        await storage.createNotification({
 	          userId: req.user?.id!,
 	          type: "ACHIEVEMENT",
 	          title: "Новое достижение! 🏆",
-	          message: `Превосходный результат! Вы набрали ${Math.round(percentage)}% в тесте ${variant.name}. Поздравляем!`,
+	          message: `Превосходный результат! Вы набрали ${Math.round(percentage)}% в тесте "${variant.name}". Поздравляем!`,
 	          metadata: {
 	            achievement: "HIGH_SCORE",
 	            testResultId: result.id,
@@ -919,15 +936,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	      }
 	    }
 	
-	    // Return created result plus full testData with correct flags and the user's answers
-	    // Wrap in testData structure to match what frontend expects
+	    // Возвращаем результат + данные для режима просмотра
 	    const testDataResponse = {
 	      variant: await storage.getVariant(variantId),
 	      testData: reviewTestData
 	    };
-	    res.status(201).json({ result, testData: testDataResponse, userAnswers: answers });
+	    
+	    res.status(201).json({ 
+	      result, 
+	      testData: testDataResponse, 
+	      userAnswers: answers 
+	    });
+	    
 	  } catch (error) {
-	    res.status(400).json({ message: "Ошибка сохранения результата" });
+	    console.error('[API] Ошибка сохранения результата теста:', error);
+	    res.status(400).json({ message: "Ошибка сохранения результата теста" });
 	  }
 	});
 
