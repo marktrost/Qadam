@@ -632,28 +632,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        totalQuestions++;
 	        const questionAnswers = await storage.getAnswersByQuestion(question.id);
 	        
-	        // Каждый вопрос дает 1 балл
+	        // НОВАЯ ЛОГИКА: каждый вопрос дает 1 балл
 	        const questionPoints = 1;
 	        totalPoints += questionPoints;
 	        
 	        const correctAnswers = questionAnswers.filter(a => a.isCorrect);
-	        const correctAnswerIds = correctAnswers.map(a => a.id);
 	        
-	        // Получаем ответы пользователя - ВСЕГДА как массив
+	        // Get user's answer(s)
 	        const userAnswer = answers[question.id];
-	        const userSelectedIds = Array.isArray(userAnswer) ? userAnswer : (userAnswer ? [userAnswer] : []);
 	        
-	        if (userSelectedIds.length > 0) {
-	          const selectedCorrect = userSelectedIds.filter(id => correctAnswerIds.includes(id));
-	          const selectedWrong = userSelectedIds.filter(id => !correctAnswerIds.includes(id));
+	        if (Array.isArray(userAnswer)) {
+	          // Multiple choice answers
+	          const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
+	          const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
+	          const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
 	          
-	          // Условие для получения 1 балла:
-	          // 1. Выбраны ВСЕ правильные ответы
-	          // 2. НЕ выбрано НИ ОДНОГО неправильного ответа  
-	          // 3. Количество выбранных ответов РАВНО количеству правильных
-	          if (selectedCorrect.length === correctAnswerIds.length && 
-	              selectedWrong.length === 0 &&
-	              userSelectedIds.length === correctAnswerIds.length) {
+	          // НОВАЯ ЛОГИКА: 1 балл только если все правильные выбраны и нет неправильных
+	          if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
+	            earnedPoints += 1;
+	          }
+	        } else if (userAnswer) {
+	          // Single choice answer
+	          const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
+	          if (selectedAnswer?.isCorrect) {
 	            earnedPoints += 1;
 	          }
 	        }
@@ -727,6 +728,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+// В routes.ts найти блок подсчета баллов и заменить его:
+
+	// В POST /api/test-results и POST /api/public/test-results заменить логику подсчета:
 	app.post("/api/test-results", requireAuth, async (req, res) => {
 	  try {
 	    const { variantId, answers, timeSpent } = req.body;
@@ -755,44 +759,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	        totalQuestions++;
 	        const questionAnswers = await storage.getAnswersByQuestion(question.id);
 	        
-	        // Каждый вопрос дает 1 балл
-	        const questionPoints = 1;
+	        // НОВАЯ ЛОГИКА: каждый вопрос дает 1 балл независимо от количества ответов
+	        const questionPoints = 1; // Все вопросы теперь стоят 1 балл
 	        totalPoints += questionPoints;
 	        
 	        const correctAnswers = questionAnswers.filter(a => a.isCorrect);
-	        const correctAnswerIds = correctAnswers.map(a => a.id);
+	        console.log(`[DEBUG] Question ${question.id}: ${questionAnswers.length} answers, ${correctAnswers.length} correct, worth ${questionPoints} points`);
 	        
-	        // Получаем ответы пользователя - ВСЕГДА как массив
+	        // Get user's answer(s) - can be array for multiple choice or single ID
 	        const userAnswer = answers[question.id];
-	        const userSelectedIds = Array.isArray(userAnswer) ? userAnswer : (userAnswer ? [userAnswer] : []);
+	        console.log(`[DEBUG] User answer for question ${question.id}:`, userAnswer);
 	        
-	        console.log(`[DEBUG] Question ${question.id}:`, {
-	          correctAnswerIds,
-	          userSelectedIds,
-	          correctCount: correctAnswers.length,
-	          userSelectedCount: userSelectedIds.length
-	        });
-	        
-	        if (userSelectedIds.length > 0) {
-	          const selectedCorrect = userSelectedIds.filter(id => correctAnswerIds.includes(id));
-	          const selectedWrong = userSelectedIds.filter(id => !correctAnswerIds.includes(id));
+	        if (Array.isArray(userAnswer)) {
+	          // Multiple choice answers
+	          const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
+	          const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
+	          const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
 	          
-	          console.log(`[DEBUG] Selected: ${selectedCorrect.length} correct, ${selectedWrong.length} wrong`);
+	          console.log(`[DEBUG] Multiple choice - selected ${selectedAnswers.length} answers: ${selectedCorrect.length} correct, ${selectedWrong.length} wrong`);
 	          
-	          // Условие для получения 1 балла:
-	          // 1. Выбраны ВСЕ правильные ответы
-	          // 2. НЕ выбрано НИ ОДНОГО неправильного ответа  
-	          // 3. Количество выбранных ответов РАВНО количеству правильных
-	          if (selectedCorrect.length === correctAnswerIds.length && 
-	              selectedWrong.length === 0 &&
-	              userSelectedIds.length === correctAnswerIds.length) {
+	          // НОВАЯ ЛОГИКА: 1 балл только если все правильные выбраны и нет неправильных
+	          if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
 	            earnedPoints += 1;
-	            console.log(`[DEBUG] PERFECT! Earned 1 point. Total: ${earnedPoints}`);
+	            console.log(`[DEBUG] Perfect! Earned 1 point. Total: ${earnedPoints}`);
 	          } else {
-	            console.log(`[DEBUG] Not perfect: wrong answers or missing correct answers, 0 points`);
+	            console.log(`[DEBUG] Incomplete or has wrong answers, 0 points`);
+	          }
+	        } else if (userAnswer) {
+	          // Single choice answer
+	          const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
+	          console.log(`[DEBUG] Single choice - selected answer:`, selectedAnswer);
+	          if (selectedAnswer?.isCorrect) {
+	            earnedPoints += 1;
+	            console.log(`[DEBUG] Correct! Earned 1 point. Total: ${earnedPoints}`);
+	          } else {
+	            console.log(`[DEBUG] Wrong answer, 0 points`);
 	          }
 	        } else {
-	          console.log(`[DEBUG] No answers selected, 0 points`);
+	          console.log(`[DEBUG] No answer provided, 0 points`);
 	        }
 	      }
 	    }
@@ -888,6 +892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	    }
 	
 	    // Return created result plus full testData with correct flags and the user's answers
+	    // Wrap in testData structure to match what frontend expects
 	    const testDataResponse = {
 	      variant: await storage.getVariant(variantId),
 	      testData: reviewTestData
@@ -952,66 +957,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-
-	app.get("/api/test-results/:resultId/review", async (req, res) => {
-	  // ВРЕМЕННО убираем requireAuth для дебага
-	  try {
-	    const { resultId } = req.params;
-	    
-	    // Get test result (временно без проверки пользователя)
-	    const result = await storage.getTestResult(resultId);
-	    if (!result) {
-	      return res.status(404).json({ message: "Результат теста не найден" });
-	    }
-	    
-	    // Остальной код БЕЗ ИЗМЕНЕНИЙ...
-	    // Get variant and test data
-	    const variant = await storage.getVariant(result.variantId);
-	    if (!variant) {
-	      return res.status(404).json({ message: "Вариант теста не найден" });
-	    }
-	    
-	    // Get test data with correct answers
-	    const subjects = await storage.getSubjectsByVariant(result.variantId);
-	    const reviewTestData: any[] = [];
-	    
-	    for (const subject of subjects) {
-	      const questions = await storage.getQuestionsBySubject(subject.id);
-	      const questionsWithAnswers = [];
-	      
-	      for (const question of questions) {
-	        const answers = await storage.getAnswersByQuestion(question.id);
-	        const answersWithFlag = answers.map(a => ({ 
-	          id: a.id, 
-	          text: a.text, 
-	          isCorrect: !!a.isCorrect 
-	        }));
-	        questionsWithAnswers.push({ ...question, answers: answersWithFlag });
-	      }
-	      
-	      reviewTestData.push({ subject, questions: questionsWithAnswers });
-	    }
-	    
-	    const testDataResponse = {
-	      variant,
-	      testData: reviewTestData
-	    };
-	    
-	    const userAnswers = result.answers || {};
-	    
-	    console.log('[API REVIEW] Sending data for result:', resultId);
-	    
-	    res.json({ 
-	      result, 
-	      variant,
-	      testData: testDataResponse, 
-	      userAnswers 
-	    });
-	  } catch (error) {
-	    console.error('[API] Error getting test review data:', error);
-	    res.status(500).json({ message: "Ошибка получения данных для просмотра теста" });
-	  }
-	});
+  // Get test result review data
+  app.get("/api/test-results/:resultId/review", requireAuth, async (req, res) => {
+    try {
+      const { resultId } = req.params;
+      
+      // Get test result and verify it belongs to the current user
+      const result = await storage.getTestResult(resultId);
+      if (!result) {
+        return res.status(404).json({ message: "Результат теста не найден" });
+      }
+      
+      if (result.userId !== req.user?.id) {
+        return res.status(403).json({ message: "Нет доступа к этому результату теста" });
+      }
+      
+      // Get variant and test data
+      const variant = await storage.getVariant(result.variantId);
+      if (!variant) {
+        return res.status(404).json({ message: "Вариант теста не найден" });
+      }
+      
+      // Get test data with correct answers - use same structure as POST /api/test-results
+      const subjects = await storage.getSubjectsByVariant(result.variantId);
+      const reviewTestData: any[] = [];
+      
+      for (const subject of subjects) {
+        const questions = await storage.getQuestionsBySubject(subject.id);
+        const questionsWithAnswers = [];
+        
+        for (const question of questions) {
+          const answers = await storage.getAnswersByQuestion(question.id);
+          const answersWithFlag = answers.map(a => ({ 
+            id: a.id, 
+            text: a.text, 
+            isCorrect: !!a.isCorrect 
+          }));
+          questionsWithAnswers.push({ ...question, answers: answersWithFlag });
+        }
+        
+        reviewTestData.push({ subject, questions: questionsWithAnswers });
+      }
+      
+      // Wrap in testData structure to match what frontend expects
+      const testDataResponse = {
+        variant,
+        testData: reviewTestData
+      };
+      
+      // Get user answers from the stored result
+      const userAnswers = result.answers || {};
+      
+      console.log('[API] Review data for result:', result.id, {
+        hasUserAnswers: !!result.answers,
+        userAnswersCount: Object.keys(userAnswers).length,
+        sampleUserAnswer: Object.entries(userAnswers)[0]
+      });
+      
+      res.json({ 
+        result, 
+        variant,
+        testData: testDataResponse, 
+        userAnswers 
+      });
+    } catch (error) {
+      console.error('[API] Error getting test review data:', error);
+      res.status(500).json({ message: "Ошибка получения данных для просмотра теста" });
+    }
+  });
 
   // User profile routes
   app.get("/api/profile", requireAuth, async (req, res) => {
