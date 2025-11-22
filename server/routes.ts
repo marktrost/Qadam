@@ -1008,7 +1008,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAnswersCount: Object.keys(userAnswers).length,
         sampleUserAnswer: Object.entries(userAnswers)[0]
       });
-      
+
+			// Добавьте этот console.log перед res.json()
+			console.log('[API] Review data sample - first question answers:', {
+			  questionId: reviewTestData[0]?.questions?.[0]?.id,
+			  answers: reviewTestData[0]?.questions?.[0]?.answers?.map(a => ({
+			    id: a.id,
+			    text: a.text.substring(0, 50) + '...', // обрезаем текст для читаемости
+			    isCorrect: a.isCorrect
+			  }))
+			});
+			
+			res.json({ 
+			  result, 
+			  variant,
+			  testData: testDataResponse, 
+			  userAnswers 
+			});
       res.json({ 
         result, 
         variant,
