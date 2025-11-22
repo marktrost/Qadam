@@ -771,60 +771,31 @@ export default function TestPage() {
                 
                 <div className="space-y-3">
 					{currentQuestion?.answers.map((answer, index) => {
-					  // Определяем тип вопроса: если 4+ ответов - множественный выбор, иначе одиночный
 					  const hasMultipleAnswers = currentQuestion.answers.length >= 4;
-					  
-					  // Получаем ответ пользователя на этот вопрос
 					  const userAnswer = userAnswers[currentQuestion.id];
-					  
-					  // Проверяем, выбран ли этот ответ
 					  const isSelected = hasMultipleAnswers 
-					    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)  // Для множественного выбора
-					    : userAnswer === answer.id;  // Для одиночного выбора
+					    ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+					    : userAnswer === answer.id;
 					
-					  // ОТЛАДКА - покажем данные для первого ответа
-					  if (index === 0 && isReviewMode) {
-					    console.log('🔍 РЕЖИМ ПРОСМОТРА - ДАННЫЕ ОТВЕТА:', {
-					      questionId: currentQuestion.id,
-					      userAnswer: userAnswer,
-					      hasMultipleAnswers: hasMultipleAnswers,
-					      isSelected: isSelected,
-					      isCorrect: answer.isCorrect,
-					      answerText: answer.text.substring(0, 30)
-					    });
-					  }
-					
-					  // Функция для определения стиля ответа
-					  const getAnswerStyle = () => {
-					    // В режиме просмотра результатов
-					    if (isReviewMode) {
-					      if (isSelected && answer.isCorrect) {
-					        // СИНИЙ: Я выбрал правильный ответ
-					        return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-foreground flex items-start gap-3";
-					      } else if (isSelected && !answer.isCorrect) {
-					        // КРАСНЫЙ: Я выбрал неправильный ответ  
-					        return "w-full p-4 rounded-lg border-2 border-red-500 bg-red-50 text-foreground flex items-start gap-3";
-					      } else if (!isSelected && answer.isCorrect) {
-					        // ЗЕЛЕНЫЙ: Правильный ответ, который я не выбрал
-					        return "w-full p-4 rounded-lg border-2 border-green-500 bg-green-50 text-foreground flex items-start gap-3";
-					      } else {
-					        // СЕРЫЙ: Неправильный ответ, который я не выбирал
-					        return "w-full p-4 rounded-lg border border-gray-300 bg-gray-50 text-foreground flex items-start gap-3";
-					      }
-					    }
-					    
-					    // В режиме тестирования
+					  // ПРОСТАЯ логика стилей как в старом коде
+					  let answerStyle = "w-full p-4 rounded-lg border border-border text-left flex items-start gap-3 ";
+					  
+					  if (isReviewMode) {
 					    if (isSelected) {
-					      // СИНИЙ: Выбранный ответ (в процессе теста)
-					      return "w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-foreground cursor-pointer flex items-start gap-3";
+					      answerStyle += answer.isCorrect 
+					        ? "border-2 border-blue-500 bg-blue-50 text-foreground"
+					        : "border-2 border-red-500 bg-red-50 text-foreground";
+					    } else if (answer.isCorrect) {
+					      answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
 					    } else {
-					      // Обычный невыбранный ответ
-					      return "w-full p-4 rounded-lg border border-gray-300 hover:bg-gray-50 cursor-pointer flex items-start gap-3";
+					      answerStyle += "border border-gray-300 bg-gray-50 text-foreground opacity-60";
 					    }
-					  };
-					
-					  // Получаем стиль для этого ответа
-					  const answerStyle = getAnswerStyle();
+					  } else {
+					    // Режим тестирования
+					    answerStyle += isSelected 
+					      ? "border-2 border-blue-500 bg-blue-50 text-foreground cursor-pointer"
+					      : "border border-gray-300 hover:bg-muted/50 cursor-pointer";
+					  }
 					
 					  return (
 					    <button
@@ -839,14 +810,14 @@ export default function TestPage() {
 					      {!isReviewMode && (
 					        <div className="flex-shrink-0 mt-0.5">
 					          {hasMultipleAnswers ? (
-					            // Checkbox for multiple choice (4+ answers)
+					            // Checkbox for multiple choice
 					            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
 					              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
 					            }`}>
 					              {isSelected && <span className="text-white text-xs">✓</span>}
 					            </div>
 					          ) : (
-					            // Radio for single choice (1-3 answers)
+					            // Radio for single choice
 					            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
 					              isSelected ? 'border-blue-500' : 'border-gray-400'
 					            }`}>
@@ -857,7 +828,7 @@ export default function TestPage() {
 					      )}
 					      
 					      {/* Answer text */}
-					      <div className="flex-1">
+					      <div className="flex-1 text-left">
 					        <span className="font-medium mr-3">
 					          {String.fromCharCode(65 + index)}.
 					        </span>
@@ -867,13 +838,10 @@ export default function TestPage() {
 					      {/* Review mode indicators */}
 					      {isReviewMode && (() => {
 					        if (isSelected && answer.isCorrect) {
-					          // Мой правильный ответ - синяя галочка
 					          return <span className="ml-2 text-blue-500 font-bold">✓</span>;
 					        } else if (isSelected && !answer.isCorrect) {
-					          // Мой неправильный ответ - красный крестик
 					          return <span className="ml-2 text-red-600 font-bold">✗</span>;
 					        } else if (!isSelected && answer.isCorrect) {
-					          // Правильный ответ где я не отвечал - зеленая галочка
 					          return <span className="ml-2 text-green-600 font-bold">✓</span>;
 					        }
 					        return null;
