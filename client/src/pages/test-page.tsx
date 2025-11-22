@@ -769,95 +769,96 @@ export default function TestPage() {
                   )}
                 </div>
                 
-                <div className="space-y-3">
-					{currentQuestion?.answers.map((answer, index) => {
-					  const hasMultipleAnswers = currentQuestion.answers.length >= 4;
-					  const userAnswer = userAnswers[currentQuestion.id];
-						const isSelected = hasMultipleAnswers 
-						  ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-						  : userAnswer === answer.id;
-						if (index === 0 && isReviewMode) {
-						  console.log('🔍 ДАННЫЕ ОТВЕТА:', {
-						    answerId: answer.id,
-						    isSelected: isSelected,
-						    userAnswer: userAnswer,
-						    userAnswerType: typeof userAnswer,
-						    isCorrect: answer.isCorrect,
-						    comparison: userAnswer === answer.id
-						  });
-						}
-					  // ПРОСТАЯ логика стилей БЕЗ вложенной функции
-					  let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
-					  
-					  if (isReviewMode) {
-					    if (isSelected && answer.isCorrect) {
-					      answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
-					    } else if (isSelected && !answer.isCorrect) {
-					      answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
-					    } else if (!isSelected && answer.isCorrect) {
-					      answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
-					    } else {
-					      answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
-					    }
-					  } else {
-					    answerStyle += isSelected 
-					      ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
-					      : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
-					  }
-					
-					  return (
-					    <button
-					      key={answer.id}
-					      type="button"
-					      onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
-					      className={answerStyle}
-					      disabled={isReviewMode}
-					      data-testid={`button-answer-${answer.id}`}
-					    >
-					      {/* Checkbox or Radio indicator */}
-					      {!isReviewMode && (
-					        <div className="flex-shrink-0 mt-0.5">
-					          {hasMultipleAnswers ? (
-					            // Checkbox for multiple choice
-					            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-					              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
-					            }`}>
-					              {isSelected && <span className="text-white text-xs">✓</span>}
-					            </div>
-					          ) : (
-					            // Radio for single choice
-					            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-					              isSelected ? 'border-blue-500' : 'border-gray-400'
-					            }`}>
-					              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
-					            </div>
-					          )}
-					        </div>
-					      )}
-					      
-					      {/* Answer text */}
-					      <div className="flex-1 text-left">
-					        <span className="font-medium mr-3">
-					          {String.fromCharCode(65 + index)}.
-					        </span>
-					        {answer.text}
-					      </div>
-					      
-					      {/* Review mode indicators */}
-					      {isReviewMode && (() => {
-					        if (isSelected && answer.isCorrect) {
-					          return <span className="ml-2 text-blue-500 font-bold">✓</span>;
-					        } else if (isSelected && !answer.isCorrect) {
-					          return <span className="ml-2 text-red-600 font-bold">✗</span>;
-					        } else if (!isSelected && answer.isCorrect) {
-					          return <span className="ml-2 text-green-600 font-bold">✓</span>;
-					        }
-					        return null;
-					      })()}
-					    </button>
-					  );
-					})}
-                </div>
+				<div className="space-y-3">
+				  {currentQuestion?.answers.map((answer, index) => {
+				    const hasMultipleAnswers = currentQuestion.answers.length >= 4;
+				    const userAnswer = userAnswers[currentQuestion.id];
+				    const isSelected = hasMultipleAnswers 
+				      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+				      : userAnswer === answer.id;
+				
+				    if (index === 0 && isReviewMode) {
+				      console.log('🔍 ДАННЫЕ ОТВЕТА:', {
+				        answerId: answer.id,
+				        isSelected: isSelected,
+				        userAnswer: userAnswer,
+				        userAnswerType: typeof userAnswer,
+				        isCorrect: answer.isCorrect,
+				        comparison: userAnswer === answer.id
+				      });
+				    }
+				
+				    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
+				    
+				    if (isReviewMode) {
+				      if (isSelected && answer.isCorrect) {
+				        answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
+				      } else if (isSelected && !answer.isCorrect) {
+				        answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
+				      } else if (!isSelected && answer.isCorrect) {
+				        answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
+				      } else {
+				        answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
+				      }
+				    } else {
+				      answerStyle += isSelected 
+				        ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
+				        : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
+				    }
+				
+				    return (
+				      <button
+				        key={answer.id}
+				        type="button"
+				        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
+				        className={answerStyle}
+				        disabled={isReviewMode}
+				        data-testid={`button-answer-${answer.id}`}
+				      >
+				        {/* Checkbox or Radio indicator */}
+				        {!isReviewMode && (
+				          <div className="flex-shrink-0 mt-0.5">
+				            {hasMultipleAnswers ? (
+				              // Checkbox for multiple choice
+				              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+				                isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
+				              }`}>
+				                {isSelected && <span className="text-white text-xs">✓</span>}
+				              </div>
+				            ) : (
+				              // Radio for single choice
+				              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+				                isSelected ? 'border-blue-500' : 'border-gray-400'
+				              }`}>
+				                {isSelected && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
+				              </div>
+				            )}
+				          </div>
+				        )}
+				        
+				        {/* Answer text */}
+				        <div className="flex-1 text-left">
+				          <span className="font-medium mr-3">
+				            {String.fromCharCode(65 + index)}.
+				          </span>
+				          {answer.text}
+				        </div>
+				        
+				        {/* Review mode indicators */}
+				        {isReviewMode && (() => {
+				          if (isSelected && answer.isCorrect) {
+				            return <span className="ml-2 text-blue-500 font-bold">✓</span>;
+				          } else if (isSelected && !answer.isCorrect) {
+				            return <span className="ml-2 text-red-600 font-bold">✗</span>;
+				          } else if (!isSelected && answer.isCorrect) {
+				            return <span className="ml-2 text-green-600 font-bold">✓</span>;
+				          }
+				          return null;
+				        })()}
+				      </button>
+				    );
+				  })}
+				</div>
                 
                 {/* Изображение решения - показывается только в режиме просмотра результатов */}
                 {isReviewMode && currentQuestion?.solutionImageUrl && (
