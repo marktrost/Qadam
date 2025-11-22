@@ -550,6 +550,7 @@ export default function TestPage() {
     const question = allQuestions.find(q => q.id === questionId);
     if (!question) return;
     
+    // Определяем тип вопроса по количеству ответов
     const isMultipleChoice = question.answers.length === 8;
     
     if (isMultipleChoice) {
@@ -565,7 +566,7 @@ export default function TestPage() {
             [questionId]: currentArray.filter(id => id !== answerId),
           };
         } else {
-          // Add if not selected
+          // Add if not selected (max 8 selections, but typically 3 correct)
           return {
             ...prev,
             [questionId]: [...currentArray, answerId],
@@ -757,16 +758,18 @@ export default function TestPage() {
                 
                 <div className="space-y-3">
                   {currentQuestion?.answers.map((answer, index) => {
-                    // Determine if this is multiple choice (8 answers) or single choice (5 answers)
-                    const isMultipleChoice = currentQuestion.answers.length === 8;
+                    // Определяем тип вопроса: если 4+ ответов - множественный выбор, иначе одиночный
+                    const hasMultipleAnswers = currentQuestion.answers.length >= 4;
                     
-                    // Определяем, выбран ли этот ответ
+                    // Получаем ответ пользователя на этот вопрос
                     const userAnswer = userAnswers[currentQuestion.id];
-                    const isSelected = isMultipleChoice 
-                      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-                      : userAnswer === answer.id;
                     
-                    // Определяем стиль для режима просмотра результатов
+                    // Проверяем, выбран ли этот ответ
+                    const isSelected = hasMultipleAnswers 
+                      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)  // Для множественного выбора
+                      : userAnswer === answer.id;  // Для одиночного выбора
+                  
+                    // Стиль ответа в зависимости от режима (тест/просмотр)
                     const getAnswerStyle = () => {
                       // Режим тестирования (не просмотр результатов)
                       if (!isReviewMode) {
@@ -778,7 +781,8 @@ export default function TestPage() {
                         return "w-full p-4 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors text-left flex items-start gap-3";
                       }
                       
-                      const isUserAnswer = isMultipleChoice
+                      // Режим просмотра результатов
+                      const isUserAnswer = hasMultipleAnswers
                         ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
                         : userAnswer === answer.id;
                       const isCorrectAnswer = answer.isCorrect === true;
@@ -797,7 +801,7 @@ export default function TestPage() {
                         return "w-full p-4 rounded-lg border border-border bg-muted/20 transition-colors opacity-60 text-left flex items-start gap-3";
                       }
                     };
-
+                  
                     return (
                       <button
                         key={answer.id}
@@ -807,18 +811,18 @@ export default function TestPage() {
                         disabled={isReviewMode}
                         data-testid={`button-answer-${answer.id}`}
                       >
-                        {/* Checkbox or Radio indicator */}
+                        {/* Индикатор выбора (чекбокс или радио) */}
                         {!isReviewMode && (
                           <div className="flex-shrink-0 mt-0.5">
-                            {isMultipleChoice ? (
-                              // Checkbox for multiple choice
+                            {hasMultipleAnswers ? (
+                              // Чекбокс для множественного выбора (4+ ответов)
                               <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
                                 isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
                               }`}>
                                 {isSelected && <span className="text-white text-xs">✓</span>}
                               </div>
                             ) : (
-                              // Radio for single choice
+                              // Радио-кнопка для одиночного выбора (1-3 ответа)
                               <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                                 isSelected ? 'border-blue-500' : 'border-gray-400'
                               }`}>
@@ -828,6 +832,7 @@ export default function TestPage() {
                           </div>
                         )}
                         
+                        {/* Текст ответа */}
                         <div className="flex-1">
                           <span className="font-medium mr-3">
                             {String.fromCharCode(65 + index)}.
@@ -835,8 +840,9 @@ export default function TestPage() {
                           {answer.text}
                         </div>
                         
+                        {/* Индикаторы в режиме просмотра */}
                         {isReviewMode && (() => {
-                          const isUserAnswer = isMultipleChoice
+                          const isUserAnswer = hasMultipleAnswers
                             ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
                             : userAnswer === answer.id;
                           const isCorrectAnswer = answer.isCorrect === true;
