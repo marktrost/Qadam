@@ -291,22 +291,26 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBlock(id: string): Promise<void> {
     try {
+      console.log('🔍 DELETE BLOCK STARTED:', id);
+     
+      // Сначала получим варианты
       const blockVariants = await this.getVariantsByBlock(id);
+      console.log('📦 Found variants:', blockVariants);
+      
       for (const variant of blockVariants) {
+        console.log('🗑️ Deleting variant:', variant.id);
         await this.deleteVariant(variant.id);
       }
-      
+    
+      // Удаляем блок
+      console.log('✅ Deleting block from database...');
       await db.delete(blocks).where(eq(blocks.id, id));
-      console.log(`[Storage] Block ${id} deleted successfully`);
+      console.log('🎉 Block deleted successfully');
+    
     } catch (error) {
-      console.error(`[Storage] Error deleting block ${id}:`, error);
-      throw new Error(`Ошибка удаления блока: ${(error as Error).message}`);
-    }
-  }
-
-  async reorderBlocks(ids: string[]): Promise<void> {
-    for (let i = 0; i < ids.length; i++) {
-      await db.update(blocks).set({ order: i }).where(eq(blocks.id, ids[i]));
+      console.error('💥 DELETE BLOCK ERROR:', error);
+      console.error('Error stack:', error.stack);
+      throw error;
     }
   }
 
