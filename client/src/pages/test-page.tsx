@@ -559,41 +559,33 @@ export default function TestPage() {
 
   const currentQuestionInfo = getQuestionNumberInSubject(currentQuestionIndex);
 
-  const handleAnswerSelect = (questionId: string, answerId: string) => {
-    const question = allQuestions.find(q => q.id === questionId);
-    if (!question) return;
-    
-    // Определяем тип вопроса по количеству ответов
-    const isMultipleChoice = question.answers.length === 8;
-    
-    if (isMultipleChoice) {
-      // Multiple choice: toggle answer in array
-      setUserAnswers(prev => {
-        const current = prev[questionId];
-        const currentArray = Array.isArray(current) ? current : [];
-        
-        if (currentArray.includes(answerId)) {
-          // Remove if already selected
-          return {
-            ...prev,
-            [questionId]: currentArray.filter(id => id !== answerId),
-          };
-        } else {
-          // Add if not selected (max 8 selections, but typically 3 correct)
-          return {
-            ...prev,
-            [questionId]: [...currentArray, answerId],
-          };
-        }
-      });
-    } else {
-      // Single choice: replace with new answer
-      setUserAnswers(prev => ({
-        ...prev,
-        [questionId]: answerId,
-      }));
-    }
-  };
+	const handleAnswerSelect = (questionId: string, answerId: string) => {
+	  // Всегда множественный выбор - toggle в массиве
+	  setUserAnswers(prev => {
+	    const current = prev[questionId];
+	    const currentArray = Array.isArray(current) ? current : [];
+	    
+	    if (currentArray.includes(answerId)) {
+	      // Убираем ответ
+	      return {
+	        ...prev,
+	        [questionId]: currentArray.filter(id => id !== answerId),
+	      };
+	    } else {
+	      // Добавляем ответ (максимум 3)
+	      const newArray = [...currentArray, answerId];
+	      if (newArray.length <= 3) {
+	        return {
+	          ...prev,
+	          [questionId]: newArray,
+	        };
+	      } else {
+	        // Если больше 3х - не добавляем
+	        return prev;
+	      }
+	    }
+	  });
+	};
 
   const handleSubmitTest = () => {
     setShowSubmitDialog(true);
@@ -771,23 +763,14 @@ export default function TestPage() {
                 
 				<div className="space-y-3">
 				  {currentQuestion?.answers.map((answer, index) => {
-					const correctAnswersCount = currentQuestion.answers.filter(a => a.isCorrect).length;
-					const hasMultipleAnswers = currentQuestion.answers.length >= 4;
-					console.log('🔍 ТИП ВОПРОСА:', {
-					  totalAnswers: currentQuestion.answers.length,
-					  correctAnswersCount: correctAnswersCount,
-					  hasMultipleAnswers: hasMultipleAnswers
-					});
+				    // Всегда множественный выбор (можно выбрать до 3х ответов)
+				    const hasMultipleAnswers = true;
 				    const userAnswer = userAnswers[currentQuestion.id];
-				    const computedIsSelected = hasMultipleAnswers 
-				  	  ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
-				  	  : userAnswer === answer.id;
 				
-
-				    const isSelected = hasMultipleAnswers 
-				      ? Array.isArray(userAnswer) && userAnswer.includes(answer.id)
+				    // Универсальная логика для isSelected
+				    const isSelected = Array.isArray(userAnswer) 
+				      ? userAnswer.includes(answer.id)
 				      : userAnswer === answer.id;
-				
 				
 				    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
 				    
@@ -816,24 +799,14 @@ export default function TestPage() {
 				        disabled={isReviewMode}
 				        data-testid={`button-answer-${answer.id}`}
 				      >
-				        {/* Checkbox or Radio indicator */}
+				        {/* Checkbox indicator (всегда чекбокс) */}
 				        {!isReviewMode && (
 				          <div className="flex-shrink-0 mt-0.5">
-				            {hasMultipleAnswers ? (
-				              // Checkbox for multiple choice
-				              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-				                isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
-				              }`}>
-				                {isSelected && <span className="text-white text-xs">✓</span>}
-				              </div>
-				            ) : (
-				              // Radio for single choice
-				              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-				                isSelected ? 'border-blue-500' : 'border-gray-400'
-				              }`}>
-				                {isSelected && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
-				              </div>
-				            )}
+				            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+				              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
+				            }`}>
+				              {isSelected && <span className="text-white text-xs">✓</span>}
+				            </div>
 				          </div>
 				        )}
 				        
