@@ -189,13 +189,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ message: "Ошибка обновления блока" });
     }
   });
-
+  
   app.delete("/api/blocks/:id", requireAdmin, async (req, res) => {
     try {
+      console.log('🚀 [ROUTES] DELETE BLOCK API CALL:', req.params.id);
+      console.log('👤 User:', req.user?.username);
+      
       await storage.deleteBlock(req.params.id);
+      
+      console.log('✅ [ROUTES] DELETE BLOCK SUCCESS');
       res.status(204).send();
+      
     } catch (error) {
-      res.status(500).json({ message: "Ошибка удаления блока" });
+      console.error('💥 [ROUTES] DELETE BLOCK ERROR:', error);
+      console.error('💥 [ROUTES] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      res.status(500).json({ 
+        message: "Ошибка удаления блока",
+        error: error.message, // ← показываем настоящую ошибку
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   });
 
