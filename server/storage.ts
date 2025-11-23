@@ -16,6 +16,7 @@ import session from "express-session";
 import createMemoryStore from "memorystore";
 import { db } from "./db";
 import { eq, and, desc, sql, count, asc } from "drizzle-orm";
+import { testResults } from "@shared/schema";
 
 const MemoryStore = createMemoryStore(session);
 
@@ -373,15 +374,28 @@ export class DatabaseStorage implements IStorage {
 
   async deleteVariant(id: string): Promise<void> {
     try {
+      console.log('  🔍 [DELETE VARIANT] Starting for variant:', id);
+    
+      // СНАЧАЛА удаляем связанные test_results
+      console.log('  🗑️ [DELETE VARIANT] Deleting related test results...');
+      await db.delete(testResults).where(eq(testResults.variantId, id));
+    
+      // ПОТОМ удаляем предметы
       const variantSubjects = await this.getSubjectsByVariant(id);
-      for (const subject of variantSubjects) {
-        await this.deleteSubject(subject.id);
+      console.log('  📦 [DELETE VARIANT] Found subjects:', variantSubjects.length);
+    
+      for (let i = 0; i < variantSubjects.length; i++) {
+        console.log(`  🔄 [DELETE VARIANT] Deleting subject ${i+1}/${variantSubjects.length}:`, variantSubjects[i].id);
+        await this.deleteSubject(variantSubjects[i].id);
       }
-      
+    
+      // И только потом удаляем сам вариант
+      console.log('  ✅ [DELETE VARIANT] Deleting variant from DB...');
       await db.delete(variants).where(eq(variants.id, id));
-      console.log(`[Storage] Variant ${id} deleted successfully`);
+      console.log('  🎉 [DELETE VARIANT] Variant deleted successfully');
+    
     } catch (error) {
-      console.error(`[Storage] Error deleting variant ${id}:`, error);
+      console.error('  💥 [DELETE VARIANT] ERROR:', error);
       throw new Error(`Ошибка удаления варианта: ${(error as Error).message}`);
     }
   }
