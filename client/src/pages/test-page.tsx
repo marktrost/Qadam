@@ -772,7 +772,7 @@ export default function TestPage() {
 				<div className="space-y-3">
 				  {currentQuestion?.answers.map((answer, index) => {
 					const correctAnswersCount = currentQuestion.answers.filter(a => a.isCorrect).length;
-					const hasMultipleAnswers = correctAnswersCount > 1;
+					const hasMultipleAnswers = currentQuestion.answers.length >= 4;
 					console.log('🔍 ТИП ВОПРОСА:', {
 					  totalAnswers: currentQuestion.answers.length,
 					  correctAnswersCount: correctAnswersCount,
