@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import { db } from "./db";
-import { eq, and, desc, sql, count, asc } from "drizzle-orm";
+import { eq, and, desc, sql, count, asc, inArray } from "drizzle-orm";
 
 const MemoryStore = createMemoryStore(session);
 
@@ -418,7 +418,86 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteBlock(id: string): Promise<void> {
-    await db.delete(blocks).where(eq(blocks.id, id));
+    console.log(`[DELETE] Starting deletion of block ${id}`);
+    
+    return this.db.transaction(async (tx) => {
+      try {
+        // 1. Найти все варианты блока
+        const blockVariants = await tx
+          .select({ id: variants.id })
+          .from(variants)
+          .where(eq(variants.blockId, id));
+        
+        console.log(`[DELETE] Found ${blockVariants.length} variants to delete`);
+
+        for (const variant of blockVariants) {
+          console.log(`[DELETE] Processing variant ${variant.id}`);
+          
+          // 2. Найти все предметы варианта
+          const variantSubjects = await tx
+            .select({ id: subjects.id })
+            .from(subjects)
+            .where(eq(subjects.variantId, variant.id));
+          
+          console.log(`[DELETE] Found ${variantSubjects.length} subjects for variant ${variant.id}`);
+
+          for (const subject of variantSubjects) {
+            console.log(`[DELETE] Processing subject ${subject.id}`);
+            
+            // 3. Найти все вопросы предмета
+            const subjectQuestions = await tx
+              .select({ id: questions.id })
+              .from(questions)
+              .where(eq(questions.subjectId, subject.id));
+            
+            console.log(`[DELETE] Found ${subjectQuestions.length} questions for subject ${subject.id}`);
+
+            for (const question of subjectQuestions) {
+              console.log(`[DELETE] Processing question ${question.id}`);
+              
+              // 4. УДАЛИТЬ ОТВЕТЫ вопроса
+              await tx
+                .delete(answers)
+                .where(eq(answers.questionId, question.id));
+              
+              console.log(`[DELETE] Deleted answers for question ${question.id}`);
+            }
+
+            // 5. УДАЛИТЬ ВОПРОСЫ предмета
+            await tx
+              .delete(questions)
+              .where(eq(questions.subjectId, subject.id));
+            
+            console.log(`[DELETE] Deleted questions for subject ${subject.id}`);
+          }
+
+          // 6. УДАЛИТЬ ПРЕДМЕТЫ варианта
+          await tx
+            .delete(subjects)
+            .where(eq(subjects.variantId, variant.id));
+          
+          console.log(`[DELETE] Deleted subjects for variant ${variant.id}`);
+        }
+
+        // 7. УДАЛИТЬ ВАРИАНТЫ блока
+        await tx
+          .delete(variants)
+          .where(eq(variants.blockId, id));
+        
+        console.log(`[DELETE] Deleted variants for block ${id}`);
+
+        // 8. УДАЛИТЬ САМ БЛОК
+        await tx
+          .delete(blocks)
+          .where(eq(blocks.id, id));
+        
+        console.log(`[DELETE] Successfully deleted block ${id}`);
+
+      } catch (error) {
+        console.error(`[DELETE] Transaction failed for block ${id}:`, error);
+        throw error;
+      }
+    });
   }
 
   async reorderBlocks(ids: string[]): Promise<void> {
@@ -486,7 +565,67 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteVariant(id: string): Promise<void> {
-    await db.delete(variants).where(eq(variants.id, id));
+    console.log(`[DELETE] Starting deletion of variant ${id}`);
+    
+    return this.db.transaction(async (tx) => {
+      try {
+        // 1. Найти все предметы варианта
+        const variantSubjects = await tx
+          .select({ id: subjects.id })
+          .from(subjects)
+          .where(eq(subjects.variantId, id));
+        
+        console.log(`[DELETE] Found ${variantSubjects.length} subjects for variant ${id}`);
+
+        for (const subject of variantSubjects) {
+          console.log(`[DELETE] Processing subject ${subject.id}`);
+          
+          // 2. Найти все вопросы предмета
+          const subjectQuestions = await tx
+            .select({ id: questions.id })
+            .from(questions)
+            .where(eq(questions.subjectId, subject.id));
+          
+          console.log(`[DELETE] Found ${subjectQuestions.length} questions for subject ${subject.id}`);
+
+          for (const question of subjectQuestions) {
+            console.log(`[DELETE] Processing question ${question.id}`);
+            
+            // 3. УДАЛИТЬ ОТВЕТЫ вопроса
+            await tx
+              .delete(answers)
+              .where(eq(answers.questionId, question.id));
+            
+            console.log(`[DELETE] Deleted answers for question ${question.id}`);
+          }
+
+          // 4. УДАЛИТЬ ВОПРОСЫ предмета
+          await tx
+            .delete(questions)
+            .where(eq(questions.subjectId, subject.id));
+          
+          console.log(`[DELETE] Deleted questions for subject ${subject.id}`);
+        }
+
+        // 5. УДАЛИТЬ ПРЕДМЕТЫ варианта
+        await tx
+          .delete(subjects)
+          .where(eq(subjects.variantId, id));
+        
+        console.log(`[DELETE] Deleted subjects for variant ${id}`);
+
+        // 6. УДАЛИТЬ САМ ВАРИАНТ
+        await tx
+          .delete(variants)
+          .where(eq(variants.id, id));
+        
+        console.log(`[DELETE] Successfully deleted variant ${id}`);
+
+      } catch (error) {
+        console.error(`[DELETE] Transaction failed for variant ${id}:`, error);
+        throw error;
+      }
+    });
   }
 
   async reorderVariants(blockId: string, ids: string[]): Promise<void> {
