@@ -190,46 +190,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-// В routes.ts - ЗАМЕНИТЕ этот endpoint
-	app.delete("/api/blocks/:id", requireAdmin, async (req, res) => {
-	  try {
-	    const blockId = req.params.id;
-	    console.log(`[API] Deleting block ${blockId}`);
-	    
-	    // Сначала получим информацию о блоке для логов
-	    const block = await storage.getBlock(blockId);
-	    if (!block) {
-	      return res.status(404).json({ message: "Блок не найден" });
-	    }
-	    
-	    console.log(`[API] Block to delete: ${block.name} (${blockId})`);
-	    
-	    // Получим варианты для информации
-	    const variants = await storage.getVariantsByBlock(blockId);
-	    console.log(`[API] Block has ${variants.length} variants`);
-	    
-	    // Теперь удаляем блок
-	    await storage.deleteBlock(blockId);
-	    
-	    console.log(`[API] Successfully deleted block ${blockId}`);
-	    res.status(204).send();
-	    
-	  } catch (error) {
-	    console.error('[API] Error deleting block:', error);
-	    
-	    // Более информативные ошибки
-	    if (error.message.includes('foreign key constraint')) {
-	      return res.status(409).json({ 
-	        message: "Не удалось удалить блок из-за связанных данных. Сначала удалите все варианты в этом блоке." 
-	      });
-	    }
-	    
-	    res.status(500).json({ 
-	      message: "Ошибка удаления блока",
-	      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-	    });
-	  }
-	});
+  app.delete("/api/blocks/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteBlock(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка удаления блока" });
+    }
+  });
+
+  // Reorder blocks
+  app.post("/api/blocks/reorder", requireAdmin, async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids)) {
+        return res.status(400).json({ message: "ids должен быть массивом" });
+      }
+      await storage.reorderBlocks(ids);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка изменения порядка блоков" });
+    }
+  });
+
   // Variants routes
   app.get("/api/blocks/:blockId/variants", async (req, res) => {
     try {
@@ -275,39 +258,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-	// В routes.ts - ЗАМЕНИТЕ endpoint удаления варианта
-	app.delete("/api/variants/:id", requireAdmin, async (req, res) => {
-	  try {
-	    const variantId = req.params.id;
-	    console.log(`[API] Deleting variant ${variantId}`);
-	    
-	    // Сначала получим информацию о варианте
-	    const variant = await storage.getVariant(variantId);
-	    if (!variant) {
-	      return res.status(404).json({ message: "Вариант не найден" });
-	    }
-	    
-	    console.log(`[API] Variant to delete: ${variant.name} (${variantId})`);
-	    
-	    // Получим предметы для информации
-	    const subjects = await storage.getSubjectsByVariant(variantId);
-	    console.log(`[API] Variant has ${subjects.length} subjects`);
-	    
-	    // Теперь удаляем вариант
-	    await storage.deleteVariant(variantId);
-	    
-	    console.log(`[API] Successfully deleted variant ${variantId}`);
-	    res.status(204).send();
-	    
-	  } catch (error) {
-	    console.error('[API] Error deleting variant:', error);
-	    
-	    res.status(500).json({ 
-	      message: "Ошибка удаления варианта",
-	      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-	    });
-	  }
-	});
+  app.delete("/api/variants/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteVariant(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка удаления варианта" });
+    }
+  });
+
+  // Reorder variants
+  app.post("/api/variants/reorder", requireAdmin, async (req, res) => {
+    try {
+      const { blockId, ids } = req.body;
+      if (!blockId || !Array.isArray(ids)) {
+        return res.status(400).json({ message: "blockId и ids обязательны" });
+      }
+      await storage.reorderVariants(blockId, ids);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка изменения порядка вариантов" });
+    }
+  });
 
   // Subjects routes
   app.get("/api/variants/:variantId/subjects", async (req, res) => {
