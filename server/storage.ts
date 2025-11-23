@@ -130,9 +130,6 @@ export interface IStorage {
   checkExportRateLimit(userId: string): Promise<{ allowed: boolean; reason?: string }>;
   incrementExportCount(userId: string): Promise<void>;
   
-  // Video Recordings
-  // Video recording methods removed
-  
   // System Settings
   getSystemSetting(key: string): Promise<{ key: string; value: string } | undefined>;
   updateSystemSetting(key: string, value: string, updatedBy: string): Promise<{ key: string; value: string }>;
@@ -164,8 +161,6 @@ export interface IStorage {
   sessionStore: session.Store;
 }
 
-// DatabaseStorage implementation using PostgreSQL - javascript_database integration
-// CRITICAL #1: Durability fix - VideoRecording moved from MemStorage to PostgreSQL
 export class DatabaseStorage implements IStorage {
   private fileCache: Map<string, { buffer: Buffer; expiresAt: number }>;
   private exportRateLimit: Map<string, { count: number; lastReset: number; concurrent: number }>;
@@ -176,7 +171,6 @@ export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    // Keep some in-memory caches for non-persistent data
     this.fileCache = new Map();
     this.exportRateLimit = new Map();
     this.notificationSettings = new Map();
@@ -188,9 +182,6 @@ export class DatabaseStorage implements IStorage {
       checkPeriod: 86400000,
     });
   }
-
-  // Video Recordings implementation - CRITICAL #1: Durability fix
-  // Video recording methods removed
 
   // Users implementation
   async getUser(id: string): Promise<User | undefined> {
@@ -225,7 +216,6 @@ export class DatabaseStorage implements IStorage {
     console.log('[Storage] Getting all users from database...');
     const allUsers = await db.select().from(users).orderBy(asc(users.createdAt));
     console.log('[Storage] Found users:', allUsers.length);
-    console.log('[Storage] Users data:', allUsers.map(u => ({ id: u.id, username: u.username, email: u.email })));
     return allUsers;
   }
 
@@ -234,133 +224,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async resetUserPassword(id: string): Promise<string> {
-    // Generate new random password
     const newPassword = Math.random().toString(36).slice(-8);
-    
-    // Import hash function from crypto
     const crypto = await import("crypto");
     const salt = crypto.randomBytes(16).toString("hex");
     const hashedPassword = crypto.scryptSync(newPassword, salt, 64).toString("hex") + ":" + salt;
     
-    // Update user password
     await db.update(users)
       .set({ password: hashedPassword })
       .where(eq(users.id, id));
     
     return newPassword;
-  }
-
-  private async initializeSampleData() {
-    // Create sample blocks
-    const physicsBlock = await this.createBlock({
-      name: "Физика-Математика",
-      hasCalculator: true,
-      hasPeriodicTable: true,
-    });
-    
-    const chemistryBlock = await this.createBlock({
-      name: "Химия-Биология",
-      hasCalculator: false,
-      hasPeriodicTable: true,
-    });
-    
-    // Create sample variants
-    for (let i = 1; i <= 8; i++) {
-      const variant = await this.createVariant({
-        blockId: physicsBlock.id,
-        name: `Вариант ${i}`,
-      });
-      
-      // Create subjects for each variant
-      const physicsSubject = await this.createSubject({
-        variantId: variant.id,
-        name: "Физика",
-      });
-      
-      const mathSubject = await this.createSubject({
-        variantId: variant.id,
-        name: "Математика",
-      });
-      
-      // Create sample questions
-      for (let j = 1; j <= 10; j++) {
-        const question = await this.createQuestion({
-          subjectId: physicsSubject.id,
-          text: `Физика вопрос ${j} для варианта ${i}`,
-        });
-        
-        // Create answers for each question
-        for (let k = 1; k <= 4; k++) {
-          await this.createAnswer({
-            questionId: question.id,
-            text: `Ответ ${k}`,
-            isCorrect: k === 1, // First answer is correct
-          });
-        }
-      }
-      
-      for (let j = 1; j <= 10; j++) {
-        const question = await this.createQuestion({
-          subjectId: mathSubject.id,
-          text: `Математика вопрос ${j} для варианта ${i}`,
-        });
-        
-        // Create answers for each question
-        for (let k = 1; k <= 4; k++) {
-          await this.createAnswer({
-            questionId: question.id,
-            text: `Ответ ${k}`,
-            isCorrect: k === 1, // First answer is correct
-          });
-        }
-      }
-    }
-    
-    // Create variants for chemistry block
-    for (let i = 1; i <= 6; i++) {
-      const variant = await this.createVariant({
-        blockId: chemistryBlock.id,
-        name: `Вариант ${i}`,
-      });
-      
-      const chemistrySubject = await this.createSubject({
-        variantId: variant.id,
-        name: "Химия",
-      });
-      
-      const biologySubject = await this.createSubject({
-        variantId: variant.id,
-        name: "Биология",
-      });
-      
-      // Create sample questions for chemistry and biology
-      for (let j = 1; j <= 10; j++) {
-        const chemQuestion = await this.createQuestion({
-          subjectId: chemistrySubject.id,
-          text: `Химия вопрос ${j} для варианта ${i}`,
-        });
-        
-        const bioQuestion = await this.createQuestion({
-          subjectId: biologySubject.id,
-          text: `Биология вопрос ${j} для варианта ${i}`,
-        });
-        
-        // Create answers
-        for (let k = 1; k <= 4; k++) {
-          await this.createAnswer({
-            questionId: chemQuestion.id,
-            text: `Ответ ${k}`,
-            isCorrect: k === 1,
-          });
-          
-          await this.createAnswer({
-            questionId: bioQuestion.id,
-            text: `Ответ ${k}`,
-            isCorrect: k === 1,
-          });
-        }
-      }
-    }
   }
 
   async getAllBlocks(): Promise<Block[]> {
@@ -402,7 +275,6 @@ export class DatabaseStorage implements IStorage {
         ...insertBlock,
         hasCalculator: insertBlock.hasCalculator ?? false,
         hasPeriodicTable: insertBlock.hasPeriodicTable ?? false,
-        // requiresProctoring removed
       })
       .returning();
     return block;
@@ -420,8 +292,8 @@ export class DatabaseStorage implements IStorage {
   async deleteBlock(id: string): Promise<void> {
     console.log(`[DELETE] Starting deletion of block ${id}`);
     
-    return this.db.transaction(async (tx) => {
-      try {
+    try {
+      await this.db.transaction(async (tx) => {
         // 1. Найти все варианты блока
         const blockVariants = await tx
           .select({ id: variants.id })
@@ -431,60 +303,42 @@ export class DatabaseStorage implements IStorage {
         console.log(`[DELETE] Found ${blockVariants.length} variants to delete`);
 
         for (const variant of blockVariants) {
-          console.log(`[DELETE] Processing variant ${variant.id}`);
-          
           // 2. Найти все предметы варианта
           const variantSubjects = await tx
             .select({ id: subjects.id })
             .from(subjects)
             .where(eq(subjects.variantId, variant.id));
           
-          console.log(`[DELETE] Found ${variantSubjects.length} subjects for variant ${variant.id}`);
-
           for (const subject of variantSubjects) {
-            console.log(`[DELETE] Processing subject ${subject.id}`);
-            
             // 3. Найти все вопросы предмета
             const subjectQuestions = await tx
               .select({ id: questions.id })
               .from(questions)
               .where(eq(questions.subjectId, subject.id));
             
-            console.log(`[DELETE] Found ${subjectQuestions.length} questions for subject ${subject.id}`);
-
             for (const question of subjectQuestions) {
-              console.log(`[DELETE] Processing question ${question.id}`);
-              
               // 4. УДАЛИТЬ ОТВЕТЫ вопроса
               await tx
                 .delete(answers)
                 .where(eq(answers.questionId, question.id));
-              
-              console.log(`[DELETE] Deleted answers for question ${question.id}`);
             }
 
             // 5. УДАЛИТЬ ВОПРОСЫ предмета
             await tx
               .delete(questions)
               .where(eq(questions.subjectId, subject.id));
-            
-            console.log(`[DELETE] Deleted questions for subject ${subject.id}`);
           }
 
           // 6. УДАЛИТЬ ПРЕДМЕТЫ варианта
           await tx
             .delete(subjects)
             .where(eq(subjects.variantId, variant.id));
-          
-          console.log(`[DELETE] Deleted subjects for variant ${variant.id}`);
         }
 
         // 7. УДАЛИТЬ ВАРИАНТЫ блока
         await tx
           .delete(variants)
           .where(eq(variants.blockId, id));
-        
-        console.log(`[DELETE] Deleted variants for block ${id}`);
 
         // 8. УДАЛИТЬ САМ БЛОК
         await tx
@@ -492,16 +346,14 @@ export class DatabaseStorage implements IStorage {
           .where(eq(blocks.id, id));
         
         console.log(`[DELETE] Successfully deleted block ${id}`);
-
-      } catch (error) {
-        console.error(`[DELETE] Transaction failed for block ${id}:`, error);
-        throw error;
-      }
-    });
+      });
+    } catch (error) {
+      console.error(`[DELETE] Transaction failed for block ${id}:`, error);
+      throw new Error(`Не удалось удалить блок: ${error.message}`);
+    }
   }
 
   async reorderBlocks(ids: string[]): Promise<void> {
-    // Update order for each block based on position in array
     for (let i = 0; i < ids.length; i++) {
       await db.update(blocks).set({ order: i }).where(eq(blocks.id, ids[i]));
     }
@@ -567,8 +419,8 @@ export class DatabaseStorage implements IStorage {
   async deleteVariant(id: string): Promise<void> {
     console.log(`[DELETE] Starting deletion of variant ${id}`);
     
-    return this.db.transaction(async (tx) => {
-      try {
+    try {
+      await this.db.transaction(async (tx) => {
         // 1. Найти все предметы варианта
         const variantSubjects = await tx
           .select({ id: subjects.id })
@@ -578,41 +430,29 @@ export class DatabaseStorage implements IStorage {
         console.log(`[DELETE] Found ${variantSubjects.length} subjects for variant ${id}`);
 
         for (const subject of variantSubjects) {
-          console.log(`[DELETE] Processing subject ${subject.id}`);
-          
           // 2. Найти все вопросы предмета
           const subjectQuestions = await tx
             .select({ id: questions.id })
             .from(questions)
             .where(eq(questions.subjectId, subject.id));
           
-          console.log(`[DELETE] Found ${subjectQuestions.length} questions for subject ${subject.id}`);
-
           for (const question of subjectQuestions) {
-            console.log(`[DELETE] Processing question ${question.id}`);
-            
             // 3. УДАЛИТЬ ОТВЕТЫ вопроса
             await tx
               .delete(answers)
               .where(eq(answers.questionId, question.id));
-            
-            console.log(`[DELETE] Deleted answers for question ${question.id}`);
           }
 
           // 4. УДАЛИТЬ ВОПРОСЫ предмета
           await tx
             .delete(questions)
             .where(eq(questions.subjectId, subject.id));
-          
-          console.log(`[DELETE] Deleted questions for subject ${subject.id}`);
         }
 
         // 5. УДАЛИТЬ ПРЕДМЕТЫ варианта
         await tx
           .delete(subjects)
           .where(eq(subjects.variantId, id));
-        
-        console.log(`[DELETE] Deleted subjects for variant ${id}`);
 
         // 6. УДАЛИТЬ САМ ВАРИАНТ
         await tx
@@ -620,12 +460,11 @@ export class DatabaseStorage implements IStorage {
           .where(eq(variants.id, id));
         
         console.log(`[DELETE] Successfully deleted variant ${id}`);
-
-      } catch (error) {
-        console.error(`[DELETE] Transaction failed for variant ${id}:`, error);
-        throw error;
-      }
-    });
+      });
+    } catch (error) {
+      console.error(`[DELETE] Transaction failed for variant ${id}:`, error);
+      throw new Error(`Не удалось удалить вариант: ${error.message}`);
+    }
   }
 
   async reorderVariants(blockId: string, ids: string[]): Promise<void> {
@@ -674,30 +513,25 @@ export class DatabaseStorage implements IStorage {
     const copiedSubjects: Subject[] = [];
     
     for (const subjectId of subjectIds) {
-      // Get original subject
       const originalSubject = await this.getSubject(subjectId);
       if (!originalSubject) {
         console.warn(`Subject ${subjectId} not found, skipping`);
         continue;
       }
       
-      // Create new subject in target variant
       const newSubject = await this.createSubject({
         variantId: targetVariantId,
         name: originalSubject.name
       });
       
-      // Get all questions from original subject
       const originalQuestions = await this.getQuestionsBySubject(subjectId);
       
-      // Copy each question with its answers
       for (const originalQuestion of originalQuestions) {
         const newQuestion = await this.createQuestion({
           subjectId: newSubject.id,
           text: originalQuestion.text
         });
         
-        // Get and copy all answers for this question
         const originalAnswers = await this.getAnswersByQuestion(originalQuestion.id);
         
         for (const originalAnswer of originalAnswers) {
@@ -838,13 +672,10 @@ export class DatabaseStorage implements IStorage {
       ? userResults.reduce((sum, result) => sum + result.percentage, 0) / testsCompleted 
       : 0;
 
-    // For now, we don't persist rankings to DB as they can be calculated on demand
-    // In production, you might want to create a rankings table for performance
     console.log(`Updated ranking for user ${userId}: ${totalScore} total score, ${testsCompleted} tests, ${averagePercentage.toFixed(1)}% average`);
   }
 
   async getAllRankings(): Promise<UserRanking[]> {
-    // Get all users and calculate their rankings on demand
     const allUsers = await db.select({ id: users.id }).from(users);
     const rankings: UserRanking[] = [];
     
@@ -860,17 +691,15 @@ export class DatabaseStorage implements IStorage {
 
   async getTodayBestResult(): Promise<{ score: number } | undefined> {
     try {
-      // Get all results and filter by date in JavaScript to avoid timezone issues
       const allResults = await db
         .select({ score: testResults.score, completedAt: testResults.completedAt })
         .from(testResults)
         .orderBy(desc(testResults.score))
-        .limit(100); // Get top 100 to be safe
+        .limit(100);
       
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      // Filter results from today
       const todayResults = allResults.filter(result => {
         if (!result.completedAt) return false;
         const resultDate = new Date(result.completedAt);
@@ -881,7 +710,6 @@ export class DatabaseStorage implements IStorage {
         return { score: 0 };
       }
       
-      // Return the best score
       return { score: todayResults[0].score };
     } catch (error) {
       console.error('[Storage] Error fetching today best result:', error);
@@ -890,7 +718,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSubjectProgress(userId: string): Promise<SubjectProgress[]> {
-    // Calculate progress from test results
     const userResults = await this.getTestResultsByUser(userId);
     const progressMap = new Map<string, { total: number; correct: number }>();
     
@@ -924,8 +751,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateSubjectProgress(userId: string, subjectName: string, totalAnswered: number, correctAnswered: number): Promise<void> {
-    // For now, we calculate progress on demand from test results
-    // In production, you might want to create a subject_progress table
     console.log(`Subject progress updated for user ${userId} in ${subjectName}: ${correctAnswered}/${totalAnswered} correct`);
   }
 
@@ -953,7 +778,6 @@ export class DatabaseStorage implements IStorage {
     const totalQuestions = userResults.reduce((sum, r) => sum + r.totalQuestions, 0);
     const correctAnswers = userResults.reduce((sum, r) => sum + r.score, 0);
 
-    // Calculate best and worst subjects
     const subjectStats = subjectProgress.reduce((acc, p) => {
       const totalAnswered = p.totalAnswered || 0;
       const correctAnswered = p.correctAnswered || 0;
@@ -968,7 +792,6 @@ export class DatabaseStorage implements IStorage {
     const worstSubject = subjects.reduce((worst, current) => 
       subjectStats[current] < subjectStats[worst] ? current : worst, subjects[0] || "");
 
-    // Calculate recent activity (tests in last 7 days)
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     const recentActivity = userResults.filter(r => 
@@ -991,7 +814,6 @@ export class DatabaseStorage implements IStorage {
     const userResults = await this.getTestResultsByUser(userId);
     const subjectProgress = await this.getSubjectProgress(userId);
     
-    // Group test results by subject
     const subjectGroups: Record<string, TestResult[]> = {};
     
     for (const result of userResults) {
@@ -1041,14 +863,12 @@ export class DatabaseStorage implements IStorage {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - rangeDays);
     
-    // Filter results within date range
     const filteredResults = userResults.filter(r => 
       r.completedAt && 
       new Date(r.completedAt) >= startDate && 
       new Date(r.completedAt) <= endDate
     );
 
-    // Group by date
     const dateGroups: Record<string, TestResult[]> = {};
     
     for (const result of filteredResults) {
@@ -1062,7 +882,6 @@ export class DatabaseStorage implements IStorage {
 
     const history: HistoryPoint[] = [];
     
-    // Generate all dates in range
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       const dateKey = d.toISOString().split('T')[0];
       const dayResults = dateGroups[dateKey] || [];
@@ -1090,14 +909,12 @@ export class DatabaseStorage implements IStorage {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - rangeDays);
     
-    // Filter results within date range
     const filteredResults = userResults.filter(r => 
       r.completedAt && 
       new Date(r.completedAt) >= startDate && 
       new Date(r.completedAt) <= endDate
     );
 
-    // Group by date
     const dateGroups: Record<string, TestResult[]> = {};
     
     for (const result of filteredResults) {
@@ -1111,7 +928,6 @@ export class DatabaseStorage implements IStorage {
 
     const breakdown: CorrectnessBreakdown[] = [];
     
-    // Generate all dates in range
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       const dateKey = d.toISOString().split('T')[0];
       const dayResults = dateGroups[dateKey] || [];
@@ -1180,7 +996,6 @@ export class DatabaseStorage implements IStorage {
   async getNotifications(userId: string, page: number = 1, limit: number = 10, type?: NotificationType): Promise<{ notifications: Notification[], total: number }> {
     const offset = (page - 1) * limit;
 
-    // Build query with explicit conditions to avoid reassigning query objects
     let userNotifications;
     if (type) {
       userNotifications = await db.select().from(notifications)
@@ -1196,7 +1011,6 @@ export class DatabaseStorage implements IStorage {
         .offset(offset);
     }
     
-    // Get total count for pagination
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)` })
       .from(notifications)
@@ -1329,7 +1143,7 @@ export class DatabaseStorage implements IStorage {
   // Export Jobs methods
   async createExportJob(insertExportJob: InsertExportJob): Promise<ExportJob> {
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000)); // 24 hours from now
+    const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000));
 
     const [exportJob] = await db
       .insert(exportJobs)
@@ -1368,7 +1182,6 @@ export class DatabaseStorage implements IStorage {
   async deleteExportJob(id: string, userId: string): Promise<void> {
     const job = this.exportJobs.get(id);
     if (job && job.userId === userId) {
-      // Clean up associated file if exists
       if (job.fileKey) {
         await this.deleteFile(job.fileKey);
       }
@@ -1386,17 +1199,14 @@ export class DatabaseStorage implements IStorage {
 
   // File Cache methods
   async storeFile(key: string, buffer: Buffer, ttl = 15): Promise<void> {
-    const expiresAt = Date.now() + (ttl * 60 * 1000); // TTL in minutes
+    const expiresAt = Date.now() + (ttl * 60 * 1000);
     
-    // Clean up expired files before storing
     await this.clearExpiredFiles();
     
-    // Check total cache size (200MB limit)
     const currentSize = Array.from(this.fileCache.values())
       .reduce((total, item) => total + item.buffer.length, 0);
     
     if (currentSize + buffer.length > 200 * 1024 * 1024) {
-      // Remove oldest files to make space
       const entries = Array.from(this.fileCache.entries())
         .sort((a, b) => a[1].expiresAt - b[1].expiresAt);
       
@@ -1418,7 +1228,6 @@ export class DatabaseStorage implements IStorage {
     const item = this.fileCache.get(key);
     if (!item) return undefined;
     
-    // Check if expired
     if (Date.now() > item.expiresAt) {
       this.fileCache.delete(key);
       return undefined;
@@ -1449,24 +1258,20 @@ export class DatabaseStorage implements IStorage {
       return { allowed: true };
     }
 
-    // Reset count if it's been more than an hour
     if (now - userLimit.lastReset > 60 * 60 * 1000) {
       userLimit.count = 0;
       userLimit.lastReset = now;
       this.exportRateLimit.set(userId, userLimit);
     }
 
-    // Check concurrent limit (1 concurrent)
     if (userLimit.concurrent > 0) {
       return { allowed: false, reason: "У вас уже есть запущенный экспорт. Дождитесь его завершения." };
     }
 
-    // Check hourly limit (5 per hour)
     if (userLimit.count >= 5) {
       return { allowed: false, reason: "Превышен лимит: максимум 5 экспортов в час." };
     }
 
-    // Check daily limit (20 per day) - simplified as 24 hours from first export
     const jobsToday = Array.from(this.exportJobs.values())
       .filter(job => 
         job.userId === userId && 
@@ -1514,7 +1319,6 @@ export class DatabaseStorage implements IStorage {
 
   async updateSystemSetting(key: string, value: string, updatedBy: string): Promise<{ key: string; value: string }> {
     try {
-      // Try to update existing setting
       const [updated] = await db
         .update(systemSettings)
         .set({ value, updatedAt: new Date(), updatedBy })
@@ -1525,7 +1329,6 @@ export class DatabaseStorage implements IStorage {
         return updated;
       }
 
-      // If not exists, insert new setting
       const [created] = await db
         .insert(systemSettings)
         .values({ key, value, updatedBy })
@@ -1548,14 +1351,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCurrentQuote(): Promise<Quote | null> {
-    const currentMonth = new Date().getMonth() + 1; // JavaScript months are 0-indexed
+    const currentMonth = new Date().getMonth() + 1;
     const monthQuotes = await this.getQuotesByMonth(currentMonth);
     
     if (monthQuotes.length === 0) {
       return null;
     }
     
-    // Get current day of month (1-31) to determine which quote to show
     const dayOfMonth = new Date().getDate();
     const quoteIndex = (dayOfMonth - 1) % monthQuotes.length;
     
@@ -1624,7 +1426,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createOrUpdateUserSubscription(subscription: InsertUserSubscription): Promise<UserSubscription> {
-    // Сначала деактивируем все существующие подписки пользователя
     await db.update(userSubscriptions)
       .set({ status: "CANCELLED", updatedAt: new Date() })
       .where(and(
@@ -1632,7 +1433,6 @@ export class DatabaseStorage implements IStorage {
         eq(userSubscriptions.status, "ACTIVE")
       ));
 
-    // Создаем новую подписку
     const [newSubscription] = await db.insert(userSubscriptions)
       .values(subscription)
       .returning();
@@ -1698,7 +1498,10 @@ export class DatabaseStorage implements IStorage {
     return !!subscription;
   }
 
-  // REMOVED: Old MemStorage VideoRecording methods - now using DatabaseStorage
+  // Добавляем свойство db для транзакций
+  get db() {
+    return db;
+  }
 }
 
 export const storage = new DatabaseStorage();
