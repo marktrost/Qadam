@@ -293,62 +293,31 @@ export class DatabaseStorage implements IStorage {
     console.log(`[DELETE] Starting deletion of block ${id}`);
     
     try {
-      await this.db.transaction(async (tx) => {
-        // 1. Найти все варианты блока
-        const blockVariants = await tx
-          .select({ id: variants.id })
-          .from(variants)
-          .where(eq(variants.blockId, id));
-        
-        console.log(`[DELETE] Found ${blockVariants.length} variants to delete`);
+      // Используем прямые запросы вместо транзакций для простоты
+      
+      // 1. Найти все варианты блока
+      const blockVariants = await db
+        .select({ id: variants.id })
+        .from(variants)
+        .where(eq(variants.blockId, id));
+      
+      console.log(`[DELETE] Found ${blockVariants.length} variants to delete`);
 
-        for (const variant of blockVariants) {
-          // 2. Найти все предметы варианта
-          const variantSubjects = await tx
-            .select({ id: subjects.id })
-            .from(subjects)
-            .where(eq(subjects.variantId, variant.id));
-          
-          for (const subject of variantSubjects) {
-            // 3. Найти все вопросы предмета
-            const subjectQuestions = await tx
-              .select({ id: questions.id })
-              .from(questions)
-              .where(eq(questions.subjectId, subject.id));
-            
-            for (const question of subjectQuestions) {
-              // 4. УДАЛИТЬ ОТВЕТЫ вопроса
-              await tx
-                .delete(answers)
-                .where(eq(answers.questionId, question.id));
-            }
+      for (const variant of blockVariants) {
+        console.log(`[DELETE] Deleting variant ${variant.id}`);
+        // Удаляем вариант (это вызовет каскадное удаление через внешние ключи)
+        await this.deleteVariant(variant.id);
+      }
 
-            // 5. УДАЛИТЬ ВОПРОСЫ предмета
-            await tx
-              .delete(questions)
-              .where(eq(questions.subjectId, subject.id));
-          }
-
-          // 6. УДАЛИТЬ ПРЕДМЕТЫ варианта
-          await tx
-            .delete(subjects)
-            .where(eq(subjects.variantId, variant.id));
-        }
-
-        // 7. УДАЛИТЬ ВАРИАНТЫ блока
-        await tx
-          .delete(variants)
-          .where(eq(variants.blockId, id));
-
-        // 8. УДАЛИТЬ САМ БЛОК
-        await tx
-          .delete(blocks)
-          .where(eq(blocks.id, id));
-        
-        console.log(`[DELETE] Successfully deleted block ${id}`);
-      });
-    } catch (error) {
-      console.error(`[DELETE] Transaction failed for block ${id}:`, error);
+      // 2. УДАЛИТЬ САМ БЛОК
+      const result = await db
+        .delete(blocks)
+        .where(eq(blocks.id, id));
+      
+      console.log(`[DELETE] Successfully deleted block ${id}`);
+      
+    } catch (error: any) {
+      console.error(`[DELETE] Failed to delete block ${id}:`, error);
       throw new Error(`Не удалось удалить блок: ${error.message}`);
     }
   }
@@ -361,37 +330,6 @@ export class DatabaseStorage implements IStorage {
 
   async getVariantsByBlock(blockId: string): Promise<Variant[]> {
     return await db.select().from(variants).where(eq(variants.blockId, blockId)).orderBy(asc(variants.order));
-  }
-
-  async getFreeVariants(): Promise<(Variant & { block: Block })[]> {
-    const freeVariants = await db
-      .select({
-        id: variants.id,
-        blockId: variants.blockId,
-        name: variants.name,
-        order: variants.order,
-        isFree: variants.isFree,
-        block: {
-          id: blocks.id,
-          name: blocks.name,
-          order: blocks.order,
-          hasCalculator: blocks.hasCalculator,
-          hasPeriodicTable: blocks.hasPeriodicTable,
-        }
-      })
-      .from(variants)
-      .innerJoin(blocks, eq(variants.blockId, blocks.id))
-      .where(eq(variants.isFree, true))
-      .orderBy(blocks.order, variants.order);
-    
-    return freeVariants.map(row => ({
-      id: row.id,
-      blockId: row.blockId,
-      name: row.name,
-      order: row.order,
-      isFree: row.isFree,
-      block: row.block
-    }));
   }
 
   async getVariant(id: string): Promise<Variant | undefined> {
@@ -420,49 +358,29 @@ export class DatabaseStorage implements IStorage {
     console.log(`[DELETE] Starting deletion of variant ${id}`);
     
     try {
-      await this.db.transaction(async (tx) => {
-        // 1. Найти все предметы варианта
-        const variantSubjects = await tx
-          .select({ id: subjects.id })
-          .from(subjects)
-          .where(eq(subjects.variantId, id));
-        
-        console.log(`[DELETE] Found ${variantSubjects.length} subjects for variant ${id}`);
+      // 1. Найти все предметы варианта
+      const variantSubjects = await db
+        .select({ id: subjects.id })
+        .from(subjects)
+        .where(eq(subjects.variantId, id));
+      
+      console.log(`[DELETE] Found ${variantSubjects.length} subjects for variant ${id}`);
 
-        for (const subject of variantSubjects) {
-          // 2. Найти все вопросы предмета
-          const subjectQuestions = await tx
-            .select({ id: questions.id })
-            .from(questions)
-            .where(eq(questions.subjectId, subject.id));
-          
-          for (const question of subjectQuestions) {
-            // 3. УДАЛИТЬ ОТВЕТЫ вопроса
-            await tx
-              .delete(answers)
-              .where(eq(answers.questionId, question.id));
-          }
+      for (const subject of variantSubjects) {
+        console.log(`[DELETE] Deleting subject ${subject.id}`);
+        // Удаляем предмет (это вызовет каскадное удаление через внешние ключи)
+        await this.deleteSubject(subject.id);
+      }
 
-          // 4. УДАЛИТЬ ВОПРОСЫ предмета
-          await tx
-            .delete(questions)
-            .where(eq(questions.subjectId, subject.id));
-        }
-
-        // 5. УДАЛИТЬ ПРЕДМЕТЫ варианта
-        await tx
-          .delete(subjects)
-          .where(eq(subjects.variantId, id));
-
-        // 6. УДАЛИТЬ САМ ВАРИАНТ
-        await tx
-          .delete(variants)
-          .where(eq(variants.id, id));
-        
-        console.log(`[DELETE] Successfully deleted variant ${id}`);
-      });
-    } catch (error) {
-      console.error(`[DELETE] Transaction failed for variant ${id}:`, error);
+      // 2. УДАЛИТЬ САМ ВАРИАНТ
+      const result = await db
+        .delete(variants)
+        .where(eq(variants.id, id));
+      
+      console.log(`[DELETE] Successfully deleted variant ${id}`);
+      
+    } catch (error: any) {
+      console.error(`[DELETE] Failed to delete variant ${id}:`, error);
       throw new Error(`Не удалось удалить вариант: ${error.message}`);
     }
   }
@@ -500,7 +418,34 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSubject(id: string): Promise<void> {
-    await db.delete(subjects).where(eq(subjects.id, id));
+    console.log(`[DELETE] Starting deletion of subject ${id}`);
+    
+    try {
+      // 1. Найти все вопросы предмета
+      const subjectQuestions = await db
+        .select({ id: questions.id })
+        .from(questions)
+        .where(eq(questions.subjectId, id));
+      
+      console.log(`[DELETE] Found ${subjectQuestions.length} questions for subject ${id}`);
+
+      for (const question of subjectQuestions) {
+        console.log(`[DELETE] Deleting question ${question.id}`);
+        // Удаляем вопрос (это вызовет каскадное удаление через внешние ключи)
+        await this.deleteQuestion(question.id);
+      }
+
+      // 2. УДАЛИТЬ САМ ПРЕДМЕТ
+      const result = await db
+        .delete(subjects)
+        .where(eq(subjects.id, id));
+      
+      console.log(`[DELETE] Successfully deleted subject ${id}`);
+      
+    } catch (error: any) {
+      console.error(`[DELETE] Failed to delete subject ${id}:`, error);
+      throw new Error(`Не удалось удалить предмет: ${error.message}`);
+    }
   }
 
   async reorderSubjects(variantId: string, ids: string[]): Promise<void> {
@@ -576,7 +521,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteQuestion(id: string): Promise<void> {
-    await db.delete(questions).where(eq(questions.id, id));
+    console.log(`[DELETE] Starting deletion of question ${id}`);
+    
+    try {
+      // 1. УДАЛИТЬ ВСЕ ОТВЕТЫ вопроса
+      const deleteAnswersResult = await db
+        .delete(answers)
+        .where(eq(answers.questionId, id));
+      
+      console.log(`[DELETE] Deleted answers for question ${id}`);
+
+      // 2. УДАЛИТЬ САМ ВОПРОС
+      const result = await db
+        .delete(questions)
+        .where(eq(questions.id, id));
+      
+      console.log(`[DELETE] Successfully deleted question ${id}`);
+      
+    } catch (error: any) {
+      console.error(`[DELETE] Failed to delete question ${id}:`, error);
+      throw new Error(`Не удалось удалить вопрос: ${error.message}`);
+    }
   }
 
   async reorderQuestions(subjectId: string, ids: string[]): Promise<void> {
@@ -623,6 +588,8 @@ export class DatabaseStorage implements IStorage {
       await db.update(answers).set({ order: i }).where(eq(answers.id, ids[i]));
     }
   }
+
+  // ... остальные методы остаются без изменений ...
 
   async createTestResult(insertResult: InsertTestResult): Promise<TestResult> {
     const [result] = await db
