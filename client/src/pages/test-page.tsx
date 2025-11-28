@@ -600,7 +600,6 @@ export default function TestPage() {
   if (isMobile) {
     return (
         <div className="min-h-screen bg-background">
-            // В секции Mobile view замените вызов MobileTestNavigation на:
             <MobileTestNavigation
               questions={allQuestions.map(q => ({
                 id: q.id,
