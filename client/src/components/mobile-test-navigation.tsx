@@ -56,8 +56,52 @@ export default function MobileTestNavigation({
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
+  const [showSubjects, setShowSubjects] = useState(false); // Свернуто по умолчанию
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
 
   const currentQuestion = questions[currentIndex];
+
+  // Swipe navigation
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart({
+      x: e.targetTouches[0].clientX,
+      y: e.targetTouches[0].clientY
+    });
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd({
+      x: e.targetTouches[0].clientX,
+      y: e.targetTouches[0].clientY
+    });
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    const isLeftSwipe = distanceX > 50;
+    const isRightSwipe = distanceX < -50;
+    const isVerticalSwipe = Math.abs(distanceY) > Math.abs(distanceX);
+
+    // Only trigger horizontal swipes
+    if (!isVerticalSwipe) {
+      if (isLeftSwipe && currentIndex < questions.length - 1) {
+        onQuestionChange(currentIndex + 1);
+        if ('vibrate' in navigator) {
+          navigator.vibrate(50);
+        }
+      } else if (isRightSwipe && currentIndex > 0) {
+        onQuestionChange(currentIndex - 1);
+        if ('vibrate' in navigator) {
+          navigator.vibrate(50);
+        }
+      }
+    }
+  };
 
   // Вычисляем номер вопроса внутри предмета
   const getQuestionNumberInSubject = (globalIndex: number) => {
@@ -103,26 +147,26 @@ export default function MobileTestNavigation({
   return (
     <div className="md:hidden min-h-screen bg-background safe-area-padding">
       {/* Mobile Header */}
-      <div className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border px-4 pt-4 pb-3">
-        <div className="flex flex-col space-y-3">
+      <div className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border px-4 pt-3 pb-2">
+        <div className="flex flex-col space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-foreground line-clamp-1">
+              <h1 className="text-base font-bold text-foreground line-clamp-1">
                 {blockName} - {variantName}
               </h1>
               {isReviewMode && (
-                <Badge variant="outline" className="bg-blue-50 text-blue-500 border-blue-500 text-xs">
+                <Badge variant="outline" className="bg-blue-50 text-blue-500 border-blue-500 text-xs px-1 py-0">
                   <i className="fas fa-eye mr-1"></i>
-                  Қарау режимі
+                  Қарау
                 </Badge>
               )}
             </div>
             
             {/* Таймер */}
             {!isReviewMode && (
-              <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-1">
-                <i className="fas fa-clock text-blue-500 text-sm"></i>
-                <span className="text-sm font-mono font-bold text-foreground">
+              <div className="flex items-center gap-1 bg-card border rounded px-2 py-1">
+                <i className="fas fa-clock text-blue-500 text-xs"></i>
+                <span className="text-xs font-mono font-bold text-foreground">
                   {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
                 </span>
               </div>
@@ -131,28 +175,33 @@ export default function MobileTestNavigation({
 
           {isOfflineMode && (
             <div className="flex items-center">
-              <NetworkStatus showDetails={true} className="text-xs" />
+              <NetworkStatus showDetails={false} className="text-xs" />
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col h-[calc(100vh-80px)]">
+      <div className="flex flex-col h-[calc(100vh-70px)]">
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-4 space-y-4">
-            {/* Subjects Navigation */}
-            <Card>
-              <CardHeader className="pb-3">
+        <div 
+          className="flex-1 overflow-y-auto"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div className="p-3 space-y-3">
+            {/* Subjects Navigation - Свернутая по умолчанию */}
+            <Card className="border">
+              <CardHeader className="pb-2 px-3 py-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Предметы</CardTitle>
+                  <CardTitle className="text-sm">Предметы</CardTitle>
                   <div className="flex items-center space-x-1">
                     {!isReviewMode && hasCalculator && (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={handleOpenCalculator}
-                        className="h-8 w-8 p-0"
+                        className="h-7 w-7 p-0"
                       >
                         <i className="fas fa-calculator text-xs"></i>
                       </Button>
@@ -162,28 +211,37 @@ export default function MobileTestNavigation({
                         variant="ghost"
                         size="sm"
                         onClick={handleOpenPeriodicTable}
-                        className="h-8 w-8 p-0"
+                        className="h-7 w-7 p-0"
                       >
                         <i className="fas fa-table text-xs"></i>
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowSubjects(!showSubjects)}
+                      className="h-7 px-2 text-xs"
+                    >
+                      <i className={`fas fa-chevron-${showSubjects ? 'up' : 'down'} mr-1`}></i>
+                      {showSubjects ? 'Свернуть' : 'Развернуть'}
+                    </Button>
                     <Sheet open={showNavigation} onOpenChange={setShowNavigation}>
                       <SheetTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-8 px-2">
-                          <i className="fas fa-th-large mr-1 text-xs"></i>
+                        <Button variant="outline" size="sm" className="h-7 px-2 text-xs">
+                          <i className="fas fa-th-large mr-1"></i>
                           {currentIndex + 1}/{questions.length}
                         </Button>
                       </SheetTrigger>
-                      <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl">
-                        <div className="p-4 h-full flex flex-col">
-                          <h3 className="text-lg font-semibold mb-4">Навигация по вопросам</h3>
-                          <div className="grid grid-cols-5 gap-2 mb-4 flex-1 overflow-y-auto">
+                      <SheetContent side="bottom" className="h-[70vh] rounded-t-2xl">
+                        <div className="p-3 h-full flex flex-col">
+                          <h3 className="text-base font-semibold mb-3">Навигация по вопросам</h3>
+                          <div className="grid grid-cols-5 gap-1 mb-3 flex-1 overflow-y-auto">
                             {questions.map((question, index) => (
                               <Button
                                 key={question.id}
                                 variant={currentIndex === index ? "default" : "outline"}
                                 size="sm"
-                                className={`h-12 min-h-[3rem] ${
+                                className={`h-10 min-h-[2.5rem] text-xs ${
                                   userAnswers[question.id] 
                                     ? currentIndex === index 
                                       ? "bg-accent" 
@@ -200,7 +258,7 @@ export default function MobileTestNavigation({
                             ))}
                           </div>
                           
-                          <div className="space-y-3 text-sm pt-4 border-t">
+                          <div className="text-xs pt-3 border-t">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Отвечено:</span>
                               <span className="font-medium">{Object.keys(userAnswers).length}/{questions.length}</span>
@@ -212,39 +270,41 @@ export default function MobileTestNavigation({
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0">
-                <div className="space-y-2 max-h-32 overflow-y-auto">
-                  {testData.map((subject, index) => {
-                    const unanswered = subject.questions.filter(q => !userAnswers[q.id]).length;
-                    return (
-                      <button
-                        key={subject.subject.id}
-                        className="w-full text-left p-2 rounded-lg flex items-center justify-between hover:bg-muted/50 text-sm"
-                        onClick={() => {
-                          const qIndex = questions.findIndex(q => 
-                            testData.find(td => 
-                              td.questions.some(tq => tq.id === q.id)
-                            )?.subject.name === subject.subject.name
-                          );
-                          if (qIndex >= 0) onQuestionChange(qIndex);
-                        }}
-                      >
-                        <span className="truncate">{subject.subject.name}</span>
-                        <Badge variant={unanswered > 0 ? "default" : "secondary"} className="text-xs">
-                          {unanswered}
-                        </Badge>
-                      </button>
-                    );
-                  })}
-                </div>
-              </CardContent>
+              {showSubjects && (
+                <CardContent className="pt-0 px-3 pb-2">
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {testData.map((subject, index) => {
+                      const unanswered = subject.questions.filter(q => !userAnswers[q.id]).length;
+                      return (
+                        <button
+                          key={subject.subject.id}
+                          className="w-full text-left p-1.5 rounded text-xs flex items-center justify-between hover:bg-muted/30"
+                          onClick={() => {
+                            const qIndex = questions.findIndex(q => 
+                              testData.find(td => 
+                                td.questions.some(tq => tq.id === q.id)
+                              )?.subject.name === subject.subject.name
+                            );
+                            if (qIndex >= 0) onQuestionChange(qIndex);
+                          }}
+                        >
+                          <span className="truncate flex-1 text-left">{subject.subject.name}</span>
+                          <Badge variant={unanswered > 0 ? "default" : "secondary"} className="text-xs ml-2">
+                            {unanswered}
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              )}
             </Card>
 
             {/* Question Content */}
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-2 px-3 py-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">
+                  <CardTitle className="text-sm">
                     {currentQuestionInfo.subjectName} - Вопрос {currentQuestionInfo.questionNumber}
                   </CardTitle>
                   <Badge variant="secondary" className="text-xs">
@@ -252,17 +312,17 @@ export default function MobileTestNavigation({
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className={`flex flex-col gap-4 ${currentQuestion?.imageUrl ? 'items-start' : ''}`}>
+              <CardContent className="space-y-3 px-3 pb-3">
+                <div className={`flex flex-col gap-3 ${currentQuestion?.imageUrl ? 'items-start' : ''}`}>
                   {/* Текст вопроса */}
                   <div className="flex-1">
-                    <div className="text-base text-foreground leading-relaxed">
+                    <div className="text-sm text-foreground leading-relaxed">
                       {currentQuestion?.text}
                     </div>
                     
                     {/* Multiple choice hint */}
                     {currentQuestion?.answers.length === 8 && !isReviewMode && (
-                      <div className="mt-2 text-xs text-muted-foreground italic">
+                      <div className="mt-1 text-xs text-muted-foreground italic">
                         Выберите 3 правильных ответа (2 балла за полностью верный ответ)
                       </div>
                     )}
@@ -280,7 +340,7 @@ export default function MobileTestNavigation({
                       <img 
                         src={currentQuestion.imageUrl} 
                         alt="Изображение к вопросу" 
-                        className="w-full max-w-[300px] mx-auto h-auto max-h-[200px] object-contain rounded-lg border shadow-sm bg-muted/30"
+                        className="w-full max-w-[280px] mx-auto h-auto max-h-[180px] object-contain rounded border shadow-sm bg-muted/30"
                       />
                     </div>
                   )}
@@ -294,7 +354,7 @@ export default function MobileTestNavigation({
                       ? userAnswer.includes(answer.id)
                       : userAnswer === answer.id;
 
-                    let answerStyle = "w-full p-3 rounded-lg border text-left flex items-start gap-3 text-sm ";
+                    let answerStyle = "w-full p-2.5 rounded border text-left flex items-start gap-2 text-sm ";
                     
                     if (isReviewMode) {
                       if (isSelected && answer.isCorrect) {
@@ -333,7 +393,7 @@ export default function MobileTestNavigation({
                         
                         {/* Answer text */}
                         <div className="flex-1 text-left">
-                          <span className="font-medium mr-2">
+                          <span className="font-medium mr-1">
                             {String.fromCharCode(65 + index)}.
                           </span>
                           {answer.text}
@@ -342,11 +402,11 @@ export default function MobileTestNavigation({
                         {/* Review mode indicators */}
                         {isReviewMode && (() => {
                           if (isSelected && answer.isCorrect) {
-                            return <span className="ml-2 text-blue-500 font-bold text-sm">✓</span>;
+                            return <span className="ml-1 text-blue-500 font-bold text-xs">✓</span>;
                           } else if (isSelected && !answer.isCorrect) {
-                            return <span className="ml-2 text-red-600 font-bold text-sm">✗</span>;
+                            return <span className="ml-1 text-red-600 font-bold text-xs">✗</span>;
                           } else if (!isSelected && answer.isCorrect) {
-                            return <span className="ml-2 text-green-600 font-bold text-sm">✓</span>;
+                            return <span className="ml-1 text-green-600 font-bold text-xs">✓</span>;
                           }
                           return null;
                         })()}
@@ -357,9 +417,9 @@ export default function MobileTestNavigation({
                 
                 {/* Изображение решения */}
                 {isReviewMode && currentQuestion?.solutionImageUrl && (
-                  <div className="mt-4 pt-4 border-t">
+                  <div className="mt-3 pt-3 border-t">
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                         <i className="fas fa-lightbulb text-yellow-500"></i>
                         <span>Решение:</span>
                       </div>
@@ -373,7 +433,7 @@ export default function MobileTestNavigation({
                         <img 
                           src={currentQuestion.solutionImageUrl} 
                           alt="Решение задачи" 
-                          className="w-full max-w-[300px] mx-auto h-auto max-h-[200px] rounded-lg border shadow-sm bg-muted/30"
+                          className="w-full max-w-[280px] mx-auto h-auto max-h-[180px] rounded border shadow-sm bg-muted/30"
                         />
                       </div>
                     </div>
@@ -385,21 +445,21 @@ export default function MobileTestNavigation({
         </div>
 
         {/* Bottom Navigation */}
-        <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t border-border p-4 safe-area-padding-bottom">
+        <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t border-border p-3 safe-area-padding-bottom">
           <div className="flex items-center justify-between space-x-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => onQuestionChange(Math.max(0, currentIndex - 1))}
               disabled={currentIndex === 0}
-              className="flex-1 h-10 text-sm"
+              className="h-9 text-xs flex-1"
             >
-              <i className="fas fa-chevron-left mr-2"></i>
+              <i className="fas fa-chevron-left mr-1"></i>
               Назад
             </Button>
 
             {/* Pagination */}
-            <div className="flex items-center gap-1 mx-2">
+            <div className="flex items-center gap-1 mx-1">
               {(() => {
                 const curSubjectName = currentQuestion?.subjectName;
                 if (!curSubjectName) return null;
@@ -408,7 +468,7 @@ export default function MobileTestNavigation({
                 
                 const total = subject.questions.length;
                 const localIndex = subject.questions.findIndex(qi => qi.id === currentQuestion?.id);
-                const windowSize = 5; // меньше кнопок на мобильном
+                const windowSize = 3; // еще меньше кнопок на мобильном
                 const half = Math.floor(windowSize / 2);
                 let start = Math.max(0, localIndex - half);
                 let end = Math.min(total, start + windowSize);
@@ -425,7 +485,7 @@ export default function MobileTestNavigation({
                       key={q.id}
                       variant={active ? "default" : "outline"}
                       size="sm"
-                      className={`h-8 w-8 p-0 min-w-8 text-xs ${answered ? 'bg-accent/20 border-accent text-accent-foreground' : ''}`}
+                      className={`h-7 w-7 p-0 min-w-7 text-xs ${answered ? 'bg-accent/20 border-accent text-accent-foreground' : ''}`}
                       onClick={() => onQuestionChange(globalIndex)}
                     >
                       {li + 1}
@@ -436,25 +496,31 @@ export default function MobileTestNavigation({
               })()}
             </div>
 
-            <div className="flex items-center gap-2">
-              {!isReviewMode && currentIndex === questions.length - 1 ? (
+            <div className="flex items-center gap-1">
+              {currentIndex === questions.length - 1 ? (
                 <Button
                   onClick={() => setShowSubmitDialog(true)}
                   disabled={isSubmitting}
-                  className="bg-accent hover:bg-accent/90 h-10 text-sm flex-1"
+                  className="bg-accent hover:bg-accent/90 h-9 text-xs flex-1"
                 >
                   {isSubmitting ? "..." : "Завершить"}
                 </Button>
               ) : (
                 <Button
                   onClick={() => onQuestionChange(Math.min(questions.length - 1, currentIndex + 1))}
-                  className="h-10 text-sm flex-1"
+                  className="h-9 text-xs flex-1"
                 >
                   Далее
-                  <i className="fas fa-chevron-right ml-2"></i>
+                  <i className="fas fa-chevron-right ml-1"></i>
                 </Button>
               )}
             </div>
+          </div>
+
+          {/* Swipe Hint */}
+          <div className="text-center text-xs text-muted-foreground mt-2">
+            <i className="fas fa-hand-pointer mr-1"></i>
+            Проведите влево/вправо для навигации
           </div>
         </div>
       </div>
@@ -509,8 +575,8 @@ export default function MobileTestNavigation({
           />
           
           <div className="relative z-50 w-full max-w-[90vw] bg-background border rounded-lg shadow-lg p-4 mx-4">
-            <h3 className="text-lg font-semibold mb-2">Завершить тест?</h3>
-            <p className="text-sm text-muted-foreground mb-4">
+            <h3 className="text-base font-semibold mb-2">Завершить тест?</h3>
+            <p className="text-xs text-muted-foreground mb-4">
               {Object.keys(userAnswers).length < questions.length ? (
                 <>
                   Вы ответили на <strong>{Object.keys(userAnswers).length}</strong> из <strong>{questions.length}</strong> вопросов.
@@ -524,13 +590,13 @@ export default function MobileTestNavigation({
               <Button
                 variant="outline"
                 onClick={() => setShowSubmitDialog(false)}
-                className="flex-1"
+                className="flex-1 text-xs h-9"
               >
                 Отмена
               </Button>
               <Button
                 onClick={confirmSubmitTest}
-                className="flex-1 bg-blue-500 hover:bg-blue-600"
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-xs h-9"
               >
                 Завершить
               </Button>
