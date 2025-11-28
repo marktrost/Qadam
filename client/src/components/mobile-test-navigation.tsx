@@ -144,15 +144,15 @@ export default function MobileTestNavigation({
   return (
     <div className="md:hidden min-h-screen bg-background safe-area-padding">
       {/* Mobile Header */}
-      <div className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border px-3 pt-2 pb-2">
+      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b border-border px-3 pt-2 pb-2">
         <div className="flex flex-col space-y-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-foreground line-clamp-1">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <h1 className="text-base font-bold text-foreground line-clamp-1 truncate">
                 {blockName} - {variantName}
               </h1>
               {isReviewMode && (
-                <Badge variant="outline" className="bg-blue-50 text-blue-500 border-blue-500 text-xs px-1 py-0">
+                <Badge variant="outline" className="bg-blue-50 text-blue-500 border-blue-500 text-xs px-1 py-0 flex-shrink-0">
                   <i className="fas fa-eye mr-1"></i>
                   Қарау
                 </Badge>
@@ -161,7 +161,7 @@ export default function MobileTestNavigation({
             
             {/* Таймер и кнопка Завершить тест */}
             {!isReviewMode && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <div className="flex items-center gap-1 bg-card border rounded px-2 py-1">
                   <i className="fas fa-clock text-blue-500 text-xs"></i>
                   <span className="text-xs font-mono font-bold text-foreground">
@@ -171,7 +171,7 @@ export default function MobileTestNavigation({
                 <Button
                   onClick={() => setShowSubmitDialog(true)}
                   disabled={isSubmitting}
-                  className="bg-red-500 hover:bg-red-600 h-7 px-2 text-xs"
+                  className="bg-red-500 hover:bg-red-600 h-7 px-2 text-xs relative z-10"
                 >
                   <i className="fas fa-flag-checkered mr-1"></i>
                   Завершить
@@ -179,13 +179,14 @@ export default function MobileTestNavigation({
               </div>
             )}
           </div>
-
+      
           {isOfflineMode && (
             <div className="flex items-center">
               <NetworkStatus showDetails={false} className="text-xs" />
             </div>
           )}
         </div>
+      </div>
       </div>
 
       <div className="flex flex-col h-[calc(100vh-70px)]">
@@ -520,6 +521,47 @@ export default function MobileTestNavigation({
       />
 
       {/* Image Modal и Submit Dialog остаются без изменений */}
+                {/* Submit Dialog - Завершение теста */}
+              {showSubmitDialog && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center">
+                  <div 
+                    className="fixed inset-0 bg-black/50 animate-in fade-in-0" 
+                    onClick={() => setShowSubmitDialog(false)}
+                  />
+                  
+                  <div className="relative z-[101] w-full max-w-[90vw] bg-background border rounded-lg shadow-lg p-4 mx-4">
+                    <h3 className="text-base font-semibold mb-2">Завершить тест?</h3>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      {Object.keys(userAnswers).length < questions.length ? (
+                        <>
+                          Вы ответили на <strong>{Object.keys(userAnswers).length}</strong> из <strong>{questions.length}</strong> вопросов.
+                          Неотвеченные вопросы будут засчитаны как неправильные.
+                        </>
+                      ) : (
+                        "Вы ответили на все вопросы. Завершить тест и посмотреть результаты?"
+                      )}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowSubmitDialog(false)}
+                        className="flex-1 text-xs h-9"
+                      >
+                        Отмена
+                      </Button>
+                      <Button
+                        onClick={confirmSubmitTest}
+                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-xs h-9"
+                      >
+                        Завершить
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
       {/* ... */}
     </div>
   );
