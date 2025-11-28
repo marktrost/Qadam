@@ -179,14 +179,13 @@ export default function MobileTestNavigation({
               </div>
             )}
           </div>
-      
+
           {isOfflineMode && (
             <div className="flex items-center">
               <NetworkStatus showDetails={false} className="text-xs" />
             </div>
           )}
         </div>
-      </div>
       </div>
 
       <div className="flex flex-col h-[calc(100vh-70px)]">
@@ -512,7 +511,7 @@ export default function MobileTestNavigation({
         </div>
       </div>
 
-      {/* Остальные модальные окна остаются без изменений */}
+      {/* Tools Modals */}
       <TestToolsModal
         showCalculator={showCalculator}
         showPeriodicTable={showPeriodicTable}
@@ -520,49 +519,77 @@ export default function MobileTestNavigation({
         onClosePeriodicTable={handleClosePeriodicTable}
       />
 
-      {/* Image Modal и Submit Dialog остаются без изменений */}
-                {/* Submit Dialog - Завершение теста */}
-              {showSubmitDialog && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center">
-                  <div 
-                    className="fixed inset-0 bg-black/50 animate-in fade-in-0" 
-                    onClick={() => setShowSubmitDialog(false)}
-                  />
-                  
-                  <div className="relative z-[101] w-full max-w-[90vw] bg-background border rounded-lg shadow-lg p-4 mx-4">
-                    <h3 className="text-base font-semibold mb-2">Завершить тест?</h3>
-                    <p className="text-xs text-muted-foreground mb-4">
-                      {Object.keys(userAnswers).length < questions.length ? (
-                        <>
-                          Вы ответили на <strong>{Object.keys(userAnswers).length}</strong> из <strong>{questions.length}</strong> вопросов.
-                          Неотвеченные вопросы будут засчитаны как неправильные.
-                        </>
-                      ) : (
-                        "Вы ответили на все вопросы. Завершить тест и посмотреть результаты?"
-                      )}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => setShowSubmitDialog(false)}
-                        className="flex-1 text-xs h-9"
-                      >
-                        Отмена
-                      </Button>
-                      <Button
-                        onClick={confirmSubmitTest}
-                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-xs h-9"
-                      >
-                        Завершить
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
+      {/* Image Modal */}
+      {imageModalOpen && selectedImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div 
+            className="fixed inset-0 bg-black/80 animate-in fade-in-0" 
+            onClick={() => {
+              setImageModalOpen(false);
+              setSelectedImage(null);
+            }}
+          />
+          
+          <div className="relative z-50 w-full max-w-[95vw] max-h-[80vh] bg-background border rounded-lg shadow-lg p-0 overflow-hidden">
+            <button
+              onClick={() => {
+                setImageModalOpen(false);
+                setSelectedImage(null);
+              }}
+              className="absolute right-2 top-2 z-10 rounded-sm opacity-70 bg-background ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 p-1"
+            >
+              <i className="fas fa-times h-4 w-4"></i>
+            </button>
+            
+            <div className="relative w-full h-full flex items-center justify-center bg-background p-4">
+              <img 
+                src={selectedImage} 
+                alt="Изображение в полном размере" 
+                className="max-w-full max-h-[70vh] object-contain"
+              />
             </div>
-          );
-        }
-      {/* ... */}
+          </div>
+        </div>
+      )}
+
+      {/* Submit Dialog */}
+      {showSubmitDialog && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div 
+            className="fixed inset-0 bg-black/50 animate-in fade-in-0" 
+            onClick={() => setShowSubmitDialog(false)}
+          />
+          
+          <div className="relative z-[101] w-full max-w-[90vw] bg-background border rounded-lg shadow-lg p-4 mx-4">
+            <h3 className="text-base font-semibold mb-2">Завершить тест?</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              {Object.keys(userAnswers).length < questions.length ? (
+                <>
+                  Вы ответили на <strong>{Object.keys(userAnswers).length}</strong> из <strong>{questions.length}</strong> вопросов.
+                  Неотвеченные вопросы будут засчитаны как неправильные.
+                </>
+              ) : (
+                "Вы ответили на все вопросы. Завершить тест и посмотреть результаты?"
+              )}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowSubmitDialog(false)}
+                className="flex-1 text-xs h-9"
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={confirmSubmitTest}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-xs h-9"
+              >
+                Завершить
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
