@@ -31,7 +31,7 @@ interface MobileTestNavigationProps {
   isOfflineMode?: boolean;
   hasCalculator?: boolean;
   hasPeriodicTable?: boolean;
-  onShowSubmitDialog?: () => void;
+  onShowSubmitDialog?: () => void; // Добавляем новый prop
 }
 
 export default function MobileTestNavigation({
@@ -49,9 +49,10 @@ export default function MobileTestNavigation({
   testData = [],
   isOfflineMode = false,
   hasCalculator = false,
-  hasPeriodicTable = false
-  onShowSubmitDialog,
+  hasPeriodicTable = false,
+  onShowSubmitDialog, // ← ДОБАВЛЯЕМ ЗАПЯТУЮ после предыдущего параметра
 }: MobileTestNavigationProps) {
+  // ... остальной код без изменений
   const [showNavigation, setShowNavigation] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showPeriodicTable, setShowPeriodicTable] = useState(false);
