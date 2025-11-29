@@ -614,7 +614,6 @@ export default function TestPage() {
           userAnswers={userAnswers}
           onQuestionChange={setCurrentQuestionIndex}
           onAnswerSelect={isReviewMode ? (() => {}) : handleAnswerSelect}
-          // ИСПРАВЛЕНИЕ: передаем confirmSubmitTest для реального завершения теста
           onSubmit={isReviewMode ? (() => setLocation("/results")) : confirmSubmitTest}
           isSubmitting={submitTestMutation.isPending}
           timeLeft={isReviewMode ? 0 : timeLeft}
@@ -625,8 +624,7 @@ export default function TestPage() {
           isOfflineMode={isOfflineMode}
           hasCalculator={finalTestData?.variant?.block?.hasCalculator === true}
           hasPeriodicTable={finalTestData?.variant?.block?.hasPeriodicTable === true}
-          // ДОБАВЛЯЕМ: функцию для показа диалога
-          onShowSubmitDialog={() => setShowSubmitDialog(true)}
+          onShowSubmitDialog={() => setShowSubmitDialog(true)} // ← Добавляем этот prop
         />
       </div>
     );
