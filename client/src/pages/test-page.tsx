@@ -597,6 +597,7 @@ export default function TestPage() {
   };
 
 // Mobile view with MobileTestNavigation
+// Mobile view with MobileTestNavigation
   if (isMobile) {
     return (
       <div className="min-h-screen bg-background">
@@ -613,7 +614,8 @@ export default function TestPage() {
           userAnswers={userAnswers}
           onQuestionChange={setCurrentQuestionIndex}
           onAnswerSelect={isReviewMode ? (() => {}) : handleAnswerSelect}
-          onSubmit={isReviewMode ? (() => setLocation("/results")) : handleSubmitTest} // ← ЭТО ИСПРАВИТЬ
+          // ИСПРАВЛЕНИЕ: передаем confirmSubmitTest для реального завершения теста
+          onSubmit={isReviewMode ? (() => setLocation("/results")) : confirmSubmitTest}
           isSubmitting={submitTestMutation.isPending}
           timeLeft={isReviewMode ? 0 : timeLeft}
           isReviewMode={isReviewMode}
@@ -623,6 +625,8 @@ export default function TestPage() {
           isOfflineMode={isOfflineMode}
           hasCalculator={finalTestData?.variant?.block?.hasCalculator === true}
           hasPeriodicTable={finalTestData?.variant?.block?.hasPeriodicTable === true}
+          // ДОБАВЛЯЕМ: функцию для показа диалога
+          onShowSubmitDialog={() => setShowSubmitDialog(true)}
         />
       </div>
     );
