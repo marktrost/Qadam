@@ -31,6 +31,7 @@ interface MobileTestNavigationProps {
   isOfflineMode?: boolean;
   hasCalculator?: boolean;
   hasPeriodicTable?: boolean;
+  onShowSubmitDialog?: () => void;
 }
 
 export default function MobileTestNavigation({
@@ -49,6 +50,7 @@ export default function MobileTestNavigation({
   isOfflineMode = false,
   hasCalculator = false,
   hasPeriodicTable = false
+  onShowSubmitDialog,
 }: MobileTestNavigationProps) {
   const [showNavigation, setShowNavigation] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
@@ -169,7 +171,7 @@ export default function MobileTestNavigation({
                   </span>
                 </div>
                 <Button
-                  onClick={() => setShowSubmitDialog(true)}
+                  onClick={() => onShowSubmitDialog ? onShowSubmitDialog() : setShowSubmitDialog(true)}
                   disabled={isSubmitting}
                   className="bg-red-500 hover:bg-red-600 h-7 px-2 text-xs relative z-10"
                 >
