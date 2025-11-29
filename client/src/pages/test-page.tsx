@@ -596,36 +596,35 @@ export default function TestPage() {
     submitTestMutation.mutate(userAnswers);
   };
 
-  // Mobile view with MobileTestNavigation
+// Mobile view with MobileTestNavigation
   if (isMobile) {
     return (
-        <div className="min-h-screen bg-background">
-            <MobileTestNavigation
-              questions={allQuestions.map(q => ({
-                id: q.id,
-                text: q.text,
-                imageUrl: q.imageUrl,
-                solutionImageUrl: q.solutionImageUrl,
-                answers: q.answers,
-                subjectName: finalTestData.testData.find(td => td.questions.some(tq => tq.id === q.id))?.subject.name || ""
-              }))}
-              currentIndex={currentQuestionIndex}
-              userAnswers={userAnswers}
-              onQuestionChange={setCurrentQuestionIndex}
-              onAnswerSelect={isReviewMode ? (() => {}) : handleAnswerSelect}
-              onSubmit={isReviewMode ? (() => setLocation("/results")) : handleSubmitTest}
-              isSubmitting={submitTestMutation.isPending}
-              timeLeft={isReviewMode ? 0 : timeLeft}
-              isReviewMode={isReviewMode}
-              variantName={finalTestData.variant.name}
-              blockName={finalTestData.variant.block?.name || 'Тест'}
-              testData={finalTestData.testData}
-              isOfflineMode={isOfflineMode}
-              hasCalculator={finalTestData?.variant?.block?.hasCalculator === true}
-              hasPeriodicTable={finalTestData?.variant?.block?.hasPeriodicTable === true}
-            />
-
-        </div>
+      <div className="min-h-screen bg-background">
+        <MobileTestNavigation
+          questions={allQuestions.map(q => ({
+            id: q.id,
+            text: q.text,
+            imageUrl: q.imageUrl,
+            solutionImageUrl: q.solutionImageUrl,
+            answers: q.answers,
+            subjectName: finalTestData.testData.find(td => td.questions.some(tq => tq.id === q.id))?.subject.name || ""
+          }))}
+          currentIndex={currentQuestionIndex}
+          userAnswers={userAnswers}
+          onQuestionChange={setCurrentQuestionIndex}
+          onAnswerSelect={isReviewMode ? (() => {}) : handleAnswerSelect}
+          onSubmit={isReviewMode ? (() => setLocation("/results")) : handleSubmitTest} // ← ЭТО ИСПРАВИТЬ
+          isSubmitting={submitTestMutation.isPending}
+          timeLeft={isReviewMode ? 0 : timeLeft}
+          isReviewMode={isReviewMode}
+          variantName={finalTestData.variant.name}
+          blockName={finalTestData.variant.block?.name || 'Тест'}
+          testData={finalTestData.testData}
+          isOfflineMode={isOfflineMode}
+          hasCalculator={finalTestData?.variant?.block?.hasCalculator === true}
+          hasPeriodicTable={finalTestData?.variant?.block?.hasPeriodicTable === true}
+        />
+      </div>
     );
   }
 
