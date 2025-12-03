@@ -738,146 +738,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 	  }
 	});
 
-// Заменить существующий роут:
   app.get("/api/variants/:variantId/test", async (req, res) => {
     try {
-      const variantId = req.params.variantId;
-      const userId = req.user?.id;
-  
-      // Проверяем, есть ли активная незавершенная попытка
-      let existingAttempt: TestAttempt | undefined;
-      if (userId) {
-        const attempts = await db
-          .select()
-          .from(testAttempts)
-          .where(and(
-            eq(testAttempts.userId, userId),
-            eq(testAttempts.variantId, variantId),
-            eq(testAttempts.isCompleted, false)
-          ))
-          .orderBy(desc(testAttempts.startedAt))
-          .limit(1);
-        
-        existingAttempt = attempts[0];
+      const variant = await storage.getVariant(req.params.variantId);
+      if (!variant) {
+        return res.status(404).json({ message: "Вариант не найден" });
       }
-  
-      // Если есть незавершенная попытка - возвращаем её данные
-      if (existingAttempt && !req.query.new) {
-        const variant = await storage.getVariant(variantId);
-        const block = await storage.getBlock(variant!.blockId);
-        
-        // Загружаем вопросы (как в текущей логике)
-        const subjects = await storage.getSubjectsByVariant(variantId);
-        const testData = [];
-  
-        for (const subject of subjects) {
-          const questions = await storage.getQuestionsBySubject(subject.id);
-          const questionsWithAnswers = [];
-  
-          for (const question of questions) {
-            const answers = await storage.getAnswersByQuestion(question.id);
-            const safeAnswers = answers.map(answer => ({
-              id: answer.id,
-              text: answer.text,
-            }));
-            questionsWithAnswers.push({
-              ...question,
-              answers: safeAnswers,
-            });
-          }
-  
-          testData.push({
-            subject,
-            questions: questionsWithAnswers,
-          });
-        }
-  
-        return res.json({
-          variant: { ...variant, block },
-          testData,
-          existingAttempt: {
-            id: existingAttempt.id,
-            testSessionId: existingAttempt.testSessionId,
-            answers: existingAttempt.answers,
-            timeSpent: existingAttempt.timeSpent,
-            startedAt: existingAttempt.startedAt,
-          }
-        });
+
+      // Get the block for this variant
+      const block = await storage.getBlock(variant.blockId);
+      if (!block) {
+        return res.status(404).json({ message: "Блок не найден" });
       }
-    app.post("/api/test-progress/save", requireAuth, async (req, res) => {
-    try {
-      const { variantId, testSessionId, answers, timeSpent } = req.body;
-      
-      if (!variantId || !testSessionId) {
-        return res.status(400).json({ message: "Необходимы variantId и testSessionId" });
-      }
-  
-      // Обновляем существующую попытку или создаем новую
-      const existingAttempt = await db
-        .select()
-        .from(testAttempts)
-        .where(and(
-          eq(testAttempts.userId, req.user?.id!),
-          eq(testAttempts.variantId, variantId),
-          eq(testAttempts.testSessionId, testSessionId)
-        ))
-        .limit(1);
-  
-      if (existingAttempt.length > 0) {
-        // Обновляем существующую
-        await db
-          .update(testAttempts)
-          .set({
-            answers: answers || {},
-            timeSpent: timeSpent || 0,
-          })
-          .where(eq(testAttempts.id, existingAttempt[0].id));
-      } else {
-        // Создаем новую
-        await db.insert(testAttempts).values({
-          userId: req.user?.id!,
-          variantId,
-          testSessionId,
-          answers: answers || {},
-          timeSpent: timeSpent || 0,
-          isCompleted: false,
-        });
-      }
-  
-      res.json({ success: true, message: "Прогресс сохранен" });
-    } catch (error) {
-      console.error('Ошибка сохранения прогресса:', error);
-      res.status(500).json({ message: "Ошибка сохранения прогресса" });
-    }
-  });
-      // Иначе создаем новую попытку или возвращаем только тест
-      const testSessionId = `${variantId}_${Date.now()}_${userId || 'guest'}`;
-      
-      if (userId) {
-        // Создаем новую запись о попытке
-        await db.insert(testAttempts).values({
-          userId,
-          variantId,
-          testSessionId,
-          answers: {},
-          timeSpent: 0,
-          isCompleted: false,
-        });
-      }
-  
-      // Остальная логика загрузки теста (как есть)
-      const variant = await storage.getVariant(variantId);
-      const block = await storage.getBlock(variant!.blockId);
-      
-      const subjects = await storage.getSubjectsByVariant(variantId);
+
+      const subjects = await storage.getSubjectsByVariant(req.params.variantId);
       const testData = [];
-  
+
       for (const subject of subjects) {
         const questions = await storage.getQuestionsBySubject(subject.id);
         const questionsWithAnswers = [];
-  
+
         for (const question of questions) {
           const answers = await storage.getAnswersByQuestion(question.id);
+          // Filter out isCorrect field to prevent revealing correct answers to client
           const safeAnswers = answers.map(answer => ({
             id: answer.id,
             text: answer.text,
@@ -887,255 +770,207 @@ export async function registerRoutes(app: Express): Promise<Server> {
             answers: safeAnswers,
           });
         }
-  
+
         testData.push({
           subject,
           questions: questionsWithAnswers,
         });
       }
-  
+
       res.json({
         variant: { ...variant, block },
         testData,
-        testSessionId, // Отправляем ID сессии на фронтенд
       });
-      
     } catch (error) {
       res.status(500).json({ message: "Ошибка получения теста" });
     }
   });
+
 // В routes.ts найти блок подсчета баллов и заменить его:
 
 	// В POST /api/test-results и POST /api/public/test-results заменить логику подсчета:
-  app.post("/api/test-results", requireAuth, async (req, res) => {
-    try {
-      const { variantId, answers, timeSpent, testSessionId } = req.body;
-      
-      console.log('[DEBUG] Получены результаты теста:', { 
-        variantId, 
-        testSessionId,
-        timeSpent, 
-        количествоОтветов: Object.keys(answers || {}).length 
-      });
-      
-      // Проверяем, что все необходимые данные переданы
-      if (!variantId || !answers || timeSpent === undefined) {
-        return res.status(400).json({ 
-          message: "Недостаточно данных: нужны variantId, answers и timeSpent" 
-        });
-      }
-  
-      // ЕСЛИ есть testSessionId - помечаем попытку как завершенную
-      if (testSessionId) {
-        try {
-          // Проверяем, существует ли запись о попытке
-          const existingAttempt = await db
-            .select()
-            .from(testAttempts)
-            .where(and(
-              eq(testAttempts.userId, req.user?.id!),
-              eq(testAttempts.variantId, variantId),
-              eq(testAttempts.testSessionId, testSessionId)
-            ))
-            .limit(1);
-  
-          if (existingAttempt.length > 0) {
-            // Обновляем существующую попытку
-            await db
-              .update(testAttempts)
-              .set({
-                isCompleted: true,
-                completedAt: new Date(),
-                answers: answers,
-                timeSpent: timeSpent,
-              })
-              .where(eq(testAttempts.id, existingAttempt[0].id));
-            
-            console.log(`[DEBUG] Попытка ${testSessionId} помечена как завершенная`);
-          } else {
-            // Создаем новую запись о завершенной попытке
-            await db.insert(testAttempts).values({
-              userId: req.user?.id!,
-              variantId,
-              testSessionId,
-              answers: answers,
-              timeSpent: timeSpent,
-              isCompleted: true,
-              completedAt: new Date(),
-            });
-            
-            console.log(`[DEBUG] Создана новая запись о завершенной попытке: ${testSessionId}`);
-          }
-        } catch (error) {
-          console.warn('[DEBUG] Ошибка при сохранении попытки:', error);
-          // Не прерываем выполнение, если не удалось сохранить попытку
-        }
-      }
-  
-      // Получаем все вопросы для этого варианта теста
-      const subjects = await storage.getSubjectsByVariant(variantId);
-      let totalQuestions = 0;
-      let totalPoints = 0;
-      let earnedPoints = 0;
-      
-      console.log('[DEBUG] Начинаем подсчет баллов для варианта:', variantId);
-      console.log('[DEBUG] Найдено предметов:', subjects.length);
-  
-      // Проходим по всем вопросам и подсчитываем баллы
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        console.log(`[DEBUG] Предмет "${subject.name}": ${questions.length} вопросов`);
-        
-        for (const question of questions) {
-          totalQuestions++;
-          const questionAnswers = await storage.getAnswersByQuestion(question.id);
-          
-          // КАЖДЫЙ вопрос дает 1 балл независимо от типа
-          const questionPoints = 1;
-          totalPoints += questionPoints;
-          
-          // Находим все правильные ответы для этого вопроса
-          const correctAnswers = questionAnswers.filter(a => a.isCorrect);
-          console.log(`[DEBUG] Вопрос ${question.id}: ${questionAnswers.length} ответов, ${correctAnswers.length} правильных, стоит ${questionPoints} баллов`);
-          
-          // Получаем ответ пользователя на этот вопрос
-          const userAnswer = answers[question.id];
-          console.log(`[DEBUG] Ответ пользователя на вопрос ${question.id}:`, userAnswer);
-          
-          if (Array.isArray(userAnswer)) {
-            // МНОЖЕСТВЕННЫЙ ВЫБОР (4+ ответов в вопросе)
-            const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
-            const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
-            const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
-            
-            console.log(`[DEBUG] Множественный выбор - выбрано ${selectedAnswers.length} ответов: ${selectedCorrect.length} правильных, ${selectedWrong.length} неправильных`);
-            
-            // 1 БАЛЛ только если ВСЕ правильные выбраны и НЕТ неправильных
-            if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
-              earnedPoints += 1;
-              console.log(`[DEBUG] ИДЕАЛЬНО! Получен 1 балл. Всего: ${earnedPoints}`);
-            } else {
-              console.log(`[DEBUG] Неполный ответ или есть ошибки, 0 баллов`);
-            }
-          } else if (userAnswer) {
-            // ОДИНОЧНЫЙ ВЫБОР (1-3 ответа в вопросе)
-            const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
-            console.log(`[DEBUG] Одиночный выбор - выбран ответ:`, selectedAnswer);
-            if (selectedAnswer?.isCorrect) {
-              earnedPoints += 1;
-              console.log(`[DEBUG] ПРАВИЛЬНО! Получен 1 балл. Всего: ${earnedPoints}`);
-            } else {
-              console.log(`[DEBUG] Неправильный ответ, 0 баллов`);
-            }
-          } else {
-            // Ответ не предоставлен
-            console.log(`[DEBUG] Ответ не предоставлен, 0 баллов`);
-          }
-        }
-      }
-      
-      console.log(`[DEBUG] Итоговый подсчет: ${earnedPoints}/${totalPoints} баллов = ${(earnedPoints/totalPoints*100).toFixed(1)}%`);
-      
-      // Вычисляем процент правильных ответов
-      const percentage = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
-      
-      // Сохраняем результат теста в базу данных
-      const validatedData = insertTestResultSchema.parse({
-        userId: req.user?.id,
-        variantId,
-        score: earnedPoints,
-        totalQuestions,
-        percentage,
-        timeSpent,
-        answers,
-      });
-  
-      const result = await storage.createTestResult(validatedData);
-      
-      // Обновляем рейтинг пользователя
-      await storage.updateUserRanking(req.user?.id!);
-  
-      // Собираем данные теста с правильными ответами для режима просмотра
-      const reviewTestData: any[] = [];
-      for (const subject of subjects) {
-        const questions = await storage.getQuestionsBySubject(subject.id);
-        const questionsWithAnswers = [];
-        for (const question of questions) {
-          const answers = await storage.getAnswersByQuestion(question.id);
-          // Добавляем флаги isCorrect для отображения в режиме просмотра
-          const answersWithFlag = answers.map(a => ({ 
-            id: a.id, 
-            text: a.text, 
-            isCorrect: !!a.isCorrect 
-          }));
-          questionsWithAnswers.push({ ...question, answers: answersWithFlag });
-        }
-        reviewTestData.push({ subject, questions: questionsWithAnswers });
-      }
-  
-      // Создаем уведомление о завершении теста
-      const variant = await storage.getVariant(variantId);
-      if (variant) {
-        let achievementMessage = "";
-        if (percentage >= 90) {
-          achievementMessage = " Отличная работа! 🌟";
-        } else if (percentage >= 70) {
-          achievementMessage = " Хороший результат! 👍";
-        }
-  
-        await storage.createNotification({
-          userId: req.user?.id!,
-          type: "TEST_COMPLETED",
-          title: "Тест завершен",
-          message: `Вы завершили тест "${variant.name}". Результат: ${earnedPoints}/${totalPoints} баллов (${Math.round(percentage)}%).${achievementMessage}`,
-          metadata: {
-            testResultId: result.id,
-            variantId: variant.id,
-            score: earnedPoints,
-            totalQuestions,
-            totalPoints,
-            percentage: Math.round(percentage),
-            timeSpent,
-          },
-          isRead: false,
-          channels: ["in_app"],
-        });
-  
-        // Создаем уведомление о достижении для высоких результатов
-        if (percentage >= 95) {
-          await storage.createNotification({
-            userId: req.user?.id!,
-            type: "ACHIEVEMENT",
-            title: "Новое достижение! 🏆",
-            message: `Превосходный результат! Вы набрали ${Math.round(percentage)}% в тесте "${variant.name}". Поздравляем!`,
-            metadata: {
-              achievement: "HIGH_SCORE",
-              testResultId: result.id,
-              percentage: Math.round(percentage),
-            },
-            isRead: false,
-            channels: ["in_app"],
-          });
-        }
-      }
-  
-      // Возвращаем результат + данные для режима просмотра
-      const testDataResponse = {
-        variant: await storage.getVariant(variantId),
-        testData: reviewTestData
-      };
-      
-      res.status(201).json({ 
-        result, 
-        testData: testDataResponse, 
-        userAnswers: answers 
-      });
-      
-    } catch (error) {
-      console.error('[API] Ошибка сохранения результата теста:', error);
-      res.status(400).json({ message: "Ошибка сохранения результата теста" });
-    }
-  });
+	app.post("/api/test-results", requireAuth, async (req, res) => {
+	  try {
+	    const { variantId, answers, timeSpent } = req.body;
+	    
+	    console.log('[DEBUG] Получены результаты теста:', { 
+	      variantId, 
+	      timeSpent, 
+	      количествоОтветов: Object.keys(answers || {}).length 
+	    });
+	    
+	    // Проверяем, что все необходимые данные переданы
+	    if (!variantId || !answers || timeSpent === undefined) {
+	      return res.status(400).json({ 
+	        message: "Недостаточно данных: нужны variantId, answers и timeSpent" 
+	      });
+	    }
+	
+	    // Получаем все вопросы для этого варианта теста
+	    const subjects = await storage.getSubjectsByVariant(variantId);
+	    let totalQuestions = 0;
+	    let totalPoints = 0;
+	    let earnedPoints = 0;
+	    
+	    console.log('[DEBUG] Начинаем подсчет баллов для варианта:', variantId);
+	    console.log('[DEBUG] Найдено предметов:', subjects.length);
+	
+	    // Проходим по всем вопросам и подсчитываем баллы
+	    for (const subject of subjects) {
+	      const questions = await storage.getQuestionsBySubject(subject.id);
+	      console.log(`[DEBUG] Предмет "${subject.name}": ${questions.length} вопросов`);
+	      
+	      for (const question of questions) {
+	        totalQuestions++;
+	        const questionAnswers = await storage.getAnswersByQuestion(question.id);
+	        
+	        // КАЖДЫЙ вопрос дает 1 балл независимо от типа
+	        const questionPoints = 1;
+	        totalPoints += questionPoints;
+	        
+	        // Находим все правильные ответы для этого вопроса
+	        const correctAnswers = questionAnswers.filter(a => a.isCorrect);
+	        console.log(`[DEBUG] Вопрос ${question.id}: ${questionAnswers.length} ответов, ${correctAnswers.length} правильных, стоит ${questionPoints} баллов`);
+	        
+	        // Получаем ответ пользователя на этот вопрос
+	        const userAnswer = answers[question.id];
+	        console.log(`[DEBUG] Ответ пользователя на вопрос ${question.id}:`, userAnswer);
+	        
+	        if (Array.isArray(userAnswer)) {
+	          // МНОЖЕСТВЕННЫЙ ВЫБОР (4+ ответов в вопросе)
+	          const selectedAnswers = questionAnswers.filter(a => userAnswer.includes(a.id));
+	          const selectedCorrect = selectedAnswers.filter(a => a.isCorrect);
+	          const selectedWrong = selectedAnswers.filter(a => !a.isCorrect);
+	          
+	          console.log(`[DEBUG] Множественный выбор - выбрано ${selectedAnswers.length} ответов: ${selectedCorrect.length} правильных, ${selectedWrong.length} неправильных`);
+	          
+	          // 1 БАЛЛ только если ВСЕ правильные выбраны и НЕТ неправильных
+	          if (selectedCorrect.length === correctAnswers.length && selectedWrong.length === 0) {
+	            earnedPoints += 1;
+	            console.log(`[DEBUG] ИДЕАЛЬНО! Получен 1 балл. Всего: ${earnedPoints}`);
+	          } else {
+	            console.log(`[DEBUG] Неполный ответ или есть ошибки, 0 баллов`);
+	          }
+	        } else if (userAnswer) {
+	          // ОДИНОЧНЫЙ ВЫБОР (1-3 ответа в вопросе)
+	          const selectedAnswer = questionAnswers.find(a => a.id === userAnswer);
+	          console.log(`[DEBUG] Одиночный выбор - выбран ответ:`, selectedAnswer);
+	          if (selectedAnswer?.isCorrect) {
+	            earnedPoints += 1;
+	            console.log(`[DEBUG] ПРАВИЛЬНО! Получен 1 балл. Всего: ${earnedPoints}`);
+	          } else {
+	            console.log(`[DEBUG] Неправильный ответ, 0 баллов`);
+	          }
+	        } else {
+	          // Ответ не предоставлен
+	          console.log(`[DEBUG] Ответ не предоставлен, 0 баллов`);
+	        }
+	      }
+	    }
+	    
+	    console.log(`[DEBUG] Итоговый подсчет: ${earnedPoints}/${totalPoints} баллов = ${(earnedPoints/totalPoints*100).toFixed(1)}%`);
+	    
+	    // Вычисляем процент правильных ответов
+	    const percentage = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
+	    
+	    // Сохраняем результат теста в базу данных
+	    const validatedData = insertTestResultSchema.parse({
+	      userId: req.user?.id,
+	      variantId,
+	      score: earnedPoints,
+	      totalQuestions,
+	      percentage,
+	      timeSpent,
+	      answers,
+	    });
+	
+	    const result = await storage.createTestResult(validatedData);
+	    
+	    // Обновляем рейтинг пользователя
+	    await storage.updateUserRanking(req.user?.id!);
+	
+	    // Собираем данные теста с правильными ответами для режима просмотра
+	    const reviewTestData: any[] = [];
+	    for (const subject of subjects) {
+	      const questions = await storage.getQuestionsBySubject(subject.id);
+	      const questionsWithAnswers = [];
+	      for (const question of questions) {
+	        const answers = await storage.getAnswersByQuestion(question.id);
+	        // Добавляем флаги isCorrect для отображения в режиме просмотра
+	        const answersWithFlag = answers.map(a => ({ 
+	          id: a.id, 
+	          text: a.text, 
+	          isCorrect: !!a.isCorrect 
+	        }));
+	        questionsWithAnswers.push({ ...question, answers: answersWithFlag });
+	      }
+	      reviewTestData.push({ subject, questions: questionsWithAnswers });
+	    }
+	
+	    // Создаем уведомление о завершении теста
+	    const variant = await storage.getVariant(variantId);
+	    if (variant) {
+	      let achievementMessage = "";
+	      if (percentage >= 90) {
+	        achievementMessage = " Отличная работа! 🌟";
+	      } else if (percentage >= 70) {
+	        achievementMessage = " Хороший результат! 👍";
+	      }
+	
+	      await storage.createNotification({
+	        userId: req.user?.id!,
+	        type: "TEST_COMPLETED",
+	        title: "Тест завершен",
+	        message: `Вы завершили тест "${variant.name}". Результат: ${earnedPoints}/${totalPoints} баллов (${Math.round(percentage)}%).${achievementMessage}`,
+	        metadata: {
+	          testResultId: result.id,
+	          variantId: variant.id,
+	          score: earnedPoints,
+	          totalQuestions,
+	          totalPoints,
+	          percentage: Math.round(percentage),
+	          timeSpent,
+	        },
+	        isRead: false,
+	        channels: ["in_app"],
+	      });
+	
+	      // Создаем уведомление о достижении для высоких результатов
+	      if (percentage >= 95) {
+	        await storage.createNotification({
+	          userId: req.user?.id!,
+	          type: "ACHIEVEMENT",
+	          title: "Новое достижение! 🏆",
+	          message: `Превосходный результат! Вы набрали ${Math.round(percentage)}% в тесте "${variant.name}". Поздравляем!`,
+	          metadata: {
+	            achievement: "HIGH_SCORE",
+	            testResultId: result.id,
+	            percentage: Math.round(percentage),
+	          },
+	          isRead: false,
+	          channels: ["in_app"],
+	        });
+	      }
+	    }
+	
+	    // Возвращаем результат + данные для режима просмотра
+	    const testDataResponse = {
+	      variant: await storage.getVariant(variantId),
+	      testData: reviewTestData
+	    };
+	    
+	    res.status(201).json({ 
+	      result, 
+	      testData: testDataResponse, 
+	      userAnswers: answers 
+	    });
+	    
+	  } catch (error) {
+	    console.error('[API] Ошибка сохранения результата теста:', error);
+	    res.status(400).json({ message: "Ошибка сохранения результата теста" });
+	  }
+	});
+
   // Test progress endpoint for offline sync
   app.post("/api/test-progress", requireAuth, async (req, res) => {
     try {
