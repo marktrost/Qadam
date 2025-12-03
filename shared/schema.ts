@@ -114,6 +114,19 @@ export const testResults = pgTable("test_results", {
   completedAt: timestamp("completed_at").defaultNow(),
 });
 
+// Добавить после таблицы testResults
+export const testAttempts = pgTable("test_attempts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  variantId: varchar("variant_id").notNull().references(() => variants.id, { onDelete: "cascade" }),
+  testSessionId: varchar("test_session_id").notNull(), // Уникальный ID сессии
+  startedAt: timestamp("started_at").defaultNow(),
+  answers: jsonb("answers").default('{}'), // Ответы в процессе
+  timeSpent: integer("time_spent").default(0), // Прошедшее время в секундах
+  isCompleted: boolean("is_completed").default(false),
+  completedAt: timestamp("completed_at"),
+});
+
 export const subjectProgress = pgTable("subject_progress", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
@@ -208,7 +221,11 @@ export const insertQuoteSchema = createInsertSchema(quotes).omit({
   createdAt: true,
   updatedAt: true,
 });
-
+export const insertTestAttemptSchema = createInsertSchema(testAttempts).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
 // insertVideoRecordingSchema removed with video proctoring
 
 // Analytics Zod DTO schemas
@@ -279,7 +296,9 @@ export type InsertTestResult = z.infer<typeof insertTestResultSchema>;
 
 export type SubjectProgress = typeof subjectProgress.$inferSelect;
 export type UserRanking = typeof userRankings.$inferSelect;
-
+// Типы
+export type TestAttempt = typeof testAttempts.$inferSelect;
+export type InsertTestAttempt = z.infer<typeof insertTestAttemptSchema>;
 // VideoRecording types removed with proctoring schema
 
 // Notification types
