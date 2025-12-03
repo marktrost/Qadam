@@ -8,7 +8,8 @@ import { type User, type InsertUser, type Block, type InsertBlock, type Variant,
          type Quote, type InsertQuote,
          type SubscriptionPlan, type InsertSubscriptionPlan, type UserSubscription, type InsertUserSubscription,
          type Payment, type InsertPayment,
-         users, blocks, variants, subjects, questions, answers, testResults,
+         type TestAttempt, type InsertTestAttempt,
+         users, blocks, variants, subjects, questions, answers, testResults, testAttempts,
          subjectProgress as subjectProgressTable, notifications, notificationSettings,
          reminders, exportJobs, systemSettings, quotes, subscriptionPlans, userSubscriptions, payments } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -80,6 +81,13 @@ export interface IStorage {
   updateUserRanking(userId: string): Promise<void>;
   getAllRankings(): Promise<UserRanking[]>;
   getTodayBestResult(): Promise<{ score: number } | undefined>;
+  
+  // Test Attempts
+  getTestAttempt(userId: string, variantId: string, testSessionId: string): Promise<TestAttempt | undefined>;
+  createTestAttempt(attempt: InsertTestAttempt): Promise<TestAttempt>;
+  updateTestAttempt(id: string, updateData: Partial<InsertTestAttempt>): Promise<TestAttempt | undefined>;
+  getUncompletedAttempts(userId: string, variantId: string): Promise<TestAttempt[]>;
+  markAttemptAsCompleted(id: string): Promise<void>;
   
   // Subject Progress
   getSubjectProgress(userId: string): Promise<SubjectProgress[]>;
@@ -606,6 +614,59 @@ export class DatabaseStorage implements IStorage {
 
   async getTestResultsByUser(userId: string): Promise<TestResult[]> {
     return await db.select().from(testResults).where(eq(testResults.userId, userId));
+  }
+
+  // Test Attempts methods
+  async getTestAttempt(userId: string, variantId: string, testSessionId: string): Promise<TestAttempt | undefined> {
+    const [attempt] = await db
+      .select()
+      .from(testAttempts)
+      .where(and(
+        eq(testAttempts.userId, userId),
+        eq(testAttempts.variantId, variantId),
+        eq(testAttempts.testSessionId, testSessionId)
+      ))
+      .limit(1);
+    return attempt || undefined;
+  }
+
+  async createTestAttempt(attempt: InsertTestAttempt): Promise<TestAttempt> {
+    const [newAttempt] = await db
+      .insert(testAttempts)
+      .values(attempt)
+      .returning();
+    return newAttempt;
+  }
+
+  async updateTestAttempt(id: string, updateData: Partial<InsertTestAttempt>): Promise<TestAttempt | undefined> {
+    const [updated] = await db
+      .update(testAttempts)
+      .set(updateData)
+      .where(eq(testAttempts.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getUncompletedAttempts(userId: string, variantId: string): Promise<TestAttempt[]> {
+    return await db
+      .select()
+      .from(testAttempts)
+      .where(and(
+        eq(testAttempts.userId, userId),
+        eq(testAttempts.variantId, variantId),
+        eq(testAttempts.isCompleted, false)
+      ))
+      .orderBy(desc(testAttempts.startedAt));
+  }
+
+  async markAttemptAsCompleted(id: string): Promise<void> {
+    await db
+      .update(testAttempts)
+      .set({
+        isCompleted: true,
+        completedAt: new Date()
+      })
+      .where(eq(testAttempts.id, id));
   }
 
   async getUserRanking(userId: string): Promise<UserRanking | undefined> {
