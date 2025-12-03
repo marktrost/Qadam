@@ -2071,7 +2071,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Ошибка проверки доступа к тесту" });
     }
   });
-
+  // Test sessions endpoints
+  app.get("/api/test-sessions/active", requireAuth, async (req, res) => {
+    try {
+      const { variantId } = req.query;
+      if (!variantId) {
+        return res.status(400).json({ message: "variantId обязателен" });
+      }
+  
+      // Ищем активную (draft) сессию для этого пользователя и варианта
+      const activeSession = await storage.getActiveTestSession(
+        req.user?.id!,
+        variantId as string
+      );
+  
+      if (!activeSession) {
+        return res.status(404).json({ message: "Активная сессия не найдена" });
+      }
+  
+      res.json(activeSession);
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка получения активной сессии" });
+    }
+  });
+  
+  app.post("/api/test-sessions", requireAuth, async (req, res) => {
+    try {
+      const { variantId, status, startedAt, timeSpent, userAnswers } = req.body;
+  
+      // Проверяем, нет ли уже активной сессии
+      const existingSession = await storage.getActiveTestSession(
+        req.user?.id!,
+        variantId
+      );
+  
+      if (existingSession && status === "draft") {
+        return res.status(409).json({ 
+          message: "Активная сессия уже существует",
+          session: existingSession
+        });
+      }
+  
+      const session = await storage.createTestSession({
+        userId: req.user?.id!,
+        variantId,
+        status: status || "draft",
+        startedAt: startedAt || new Date().toISOString(),
+        timeSpent: timeSpent || 0,
+        userAnswers: userAnswers || {},
+        lastSavedAt: new Date().toISOString()
+      });
+  
+      res.status(201).json(session);
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка создания сессии теста" });
+    }
+  });
+  
+  app.post("/api/test-sessions/save", requireAuth, async (req, res) => {
+    try {
+      const { variantId, timeSpent, userAnswers, lastSavedAt } = req.body;
+  
+      const session = await storage.updateTestSession(
+        req.user?.id!,
+        variantId,
+        {
+          timeSpent,
+          userAnswers,
+          lastSavedAt
+        }
+      );
+  
+      if (!session) {
+        return res.status(404).json({ message: "Сессия не найдена" });
+      }
+  
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка сохранения прогресса" });
+    }
+  });
+  
+  app.post("/api/test-sessions/complete", requireAuth, async (req, res) => {
+    try {
+      const { variantId, timeSpent, userAnswers } = req.body;
+  
+      const session = await storage.completeTestSession(
+        req.user?.id!,
+        variantId,
+        {
+          status: "completed",
+          timeSpent,
+          userAnswers,
+          completedAt: new Date().toISOString(),
+          lastSavedAt: new Date().toISOString()
+        }
+      );
+  
+      if (!session) {
+        return res.status(404).json({ message: "Сессия не найдена" });
+      }
+  
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка завершения сессии" });
+    }
+  });
+  
+  app.post("/api/test-sessions/abandon", requireAuth, async (req, res) => {
+    try {
+      const { variantId } = req.body;
+  
+      const session = await storage.updateTestSession(
+        req.user?.id!,
+        variantId,
+        {
+          status: "abandoned",
+          lastSavedAt: new Date().toISOString()
+        }
+      );
+  
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка обновления сессии" });
+    }
+  });
+  
+  app.get("/api/test-sessions/history", requireAuth, async (req, res) => {
+    try {
+      const sessions = await storage.getUserTestSessions(req.user?.id!);
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ message: "Ошибка получения истории сессий" });
+    }
+  });
   const httpServer = createServer(app);
   return httpServer;
 }
