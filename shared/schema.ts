@@ -455,25 +455,6 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   completedAt: true,
 });
 
-// Добавить в schema.ts после существующих таблиц
-export const testSessions = pgTable("test_sessions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
-  variantId: varchar("variant_id").notNull().references(() => variants.id),
-  status: text("status").notNull().default("draft"), // "draft", "completed", "abandoned"
-  startedAt: timestamp("started_at").notNull(),
-  lastSavedAt: timestamp("last_saved_at"),
-  completedAt: timestamp("completed_at"),
-  timeSpent: integer("time_spent").default(0), // в секундах
-  userAnswers: jsonb("user_answers"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertTestSessionSchema = createInsertSchema(testSessions).omit({
-  id: true,
-  createdAt: true,
-});
-
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type UserSubscription = typeof userSubscriptions.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
