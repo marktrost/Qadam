@@ -56,9 +56,6 @@ interface TestData {
   testData: TestSubject[];
 }
 
-// Тип для статуса сессии
-type TestSessionStatus = 'draft' | 'completed' | 'abandoned';
-
 export default function TestPage() {
   const [match, params] = useRoute("/test/:variantId");
   const [publicMatch, publicParams] = useRoute("/public-test/:variantId");
@@ -97,7 +94,6 @@ export default function TestPage() {
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
-  const [testSessionId, setTestSessionId] = useState<string | null>(null); // ID сессии в БД
 
   // Мемоизированные callback для управления модальными окнами
   const handleCloseCalculator = useCallback(() => {
@@ -221,167 +217,6 @@ export default function TestPage() {
 
   // Proctoring removed
 
-  // Функция для управления тестовой сессией
-  const manageTestSession = useCallback(async (action: 'load' | 'create' | 'save' | 'complete' | 'abandon') => {
-    if (!variantId || !user?.id || isReviewMode) return null;
-
-    try {
-      switch (action) {
-        case 'load':
-          // Проверяем активную сессию
-          const loadResponse = await apiRequest(
-            "GET", 
-            `/api/test-sessions/active?userId=${user.id}&variantId=${variantId}`
-          );
-          
-          if (loadResponse.ok) {
-            const session = await loadResponse.json();
-            if (session) {
-              return session;
-            }
-          }
-          return null;
-          
-        case 'create':
-          // Создаем новую сессию
-          const createResponse = await apiRequest("POST", "/api/test-sessions", {
-            userId: user.id,
-            variantId,
-            status: "draft",
-            startedAt: new Date().toISOString(),
-            timeSpent: 0,
-            userAnswers: {}
-          });
-          
-          if (createResponse.ok) {
-            const newSession = await createResponse.json();
-            return newSession;
-          }
-          return null;
-          
-        case 'save':
-          // Сохраняем прогресс
-          const saveResponse = await apiRequest("POST", "/api/test-sessions/save", {
-            userId: user.id,
-            variantId,
-            timeSpent: (240 * 60) - timeLeft,
-            userAnswers,
-            lastSavedAt: new Date().toISOString()
-          });
-          
-          return saveResponse.ok;
-          
-        case 'complete':
-          // Завершаем сессию
-          const completeResponse = await apiRequest("POST", "/api/test-sessions/complete", {
-            userId: user.id,
-            variantId,
-            timeSpent: (240 * 60) - timeLeft,
-            userAnswers,
-            completedAt: new Date().toISOString()
-          });
-          
-          return completeResponse.ok;
-          
-        case 'abandon':
-          // Отмечаем как брошенную
-          if (timeLeft > 0) { // Только если не закончилось время
-            const abandonResponse = await apiRequest("POST", "/api/test-sessions/abandon", {
-              userId: user.id,
-              variantId
-            });
-            return abandonResponse.ok;
-          }
-          return true;
-      }
-    } catch (error) {
-      console.error(`Test session ${action} error:`, error);
-      return null;
-    }
-  }, [variantId, user?.id, timeLeft, userAnswers, isReviewMode]);
-
-  // Загрузка прогресса при монтировании
-  useEffect(() => {
-    if (isReviewMode) return;
-    
-    const loadProgress = async () => {
-      if (variantId && user?.id) {
-        try {
-          // 1. Проверяем активную сессию
-          const activeSession = await manageTestSession('load');
-          
-          if (activeSession && activeSession.status === 'draft') {
-            // Восстанавливаем черновик
-            setUserAnswers(activeSession.userAnswers || {});
-            setTimeLeft(Math.max(0, 240 * 60 - (activeSession.timeSpent || 0)));
-            setTestSessionId(activeSession.id);
-            setIsOfflineMode(false);
-            
-            toast({
-              title: "Тест восстановлен",
-              description: "Продолжаем с сохраненного места",
-            });
-          } else {
-            // 2. Создаем новую сессию
-            const newSession = await manageTestSession('create');
-            if (newSession) {
-              setTestSessionId(newSession.id);
-              setUserAnswers({});
-              setTimeLeft(240 * 60);
-              setIsOfflineMode(false);
-              
-              // Очищаем localStorage
-              localStorage.removeItem(`test_${variantId}_answers`);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to load test session:', error);
-          // Fallback to localStorage
-          const savedAnswers = localStorage.getItem(`test_${variantId}_answers`);
-          if (savedAnswers) {
-            setUserAnswers(JSON.parse(savedAnswers));
-          }
-        }
-      }
-    };
-
-    loadProgress();
-  }, [variantId, user?.id, isReviewMode, manageTestSession, toast]);
-
-  // Автосохранение каждые 30 секунд
-  useEffect(() => {
-    if (isReviewMode || !variantId || !user?.id) return;
-
-    const autoSaveInterval = setInterval(async () => {
-      try {
-        // Сохраняем в базу
-        await manageTestSession('save');
-        
-        // Fallback в localStorage
-        localStorage.setItem(`test_${variantId}_answers`, JSON.stringify(userAnswers));
-      } catch (error) {
-        console.error('Auto-save failed:', error);
-        // Только localStorage
-        localStorage.setItem(`test_${variantId}_answers`, JSON.stringify(userAnswers));
-      }
-    }, 30000); // Каждые 30 секунд
-
-    return () => clearInterval(autoSaveInterval);
-  }, [variantId, user?.id, timeLeft, userAnswers, isReviewMode, manageTestSession]);
-
-  // Очистка при размонтировании (если тест не завершен)
-  useEffect(() => {
-    return () => {
-      if (!isReviewMode && variantId && user?.id && timeLeft > 0) {
-        // Отмечаем сессию как брошенную
-        manageTestSession('abandon').catch(console.error);
-        
-        // Очищаем localStorage
-        localStorage.removeItem(`test_${variantId}_answers`);
-      }
-    };
-  }, [isReviewMode, variantId, user?.id, timeLeft, manageTestSession]);
-
   const submitTestMutation = useMutation({
     mutationFn: async (answers: Record<string, string | string[]>) => {
   // Proctoring removed: no action needed here.
@@ -425,15 +260,7 @@ export default function TestPage() {
         };
       }
     },
-    onSuccess: async (result) => {
-      // Завершаем тестовую сессию
-      if (variantId && user?.id && !isPublicTest) {
-        await manageTestSession('complete');
-      }
-      
-      // Очищаем localStorage
-      localStorage.removeItem(`test_${variantId}_answers`);
-      
+    onSuccess: (result) => {
       if (result.offline) {
         toast({
           title: "Тест завершен",
@@ -453,6 +280,9 @@ export default function TestPage() {
           queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
         }
       }
+      
+      // Clean up offline data
+      localStorage.removeItem(`test_${variantId}_answers`);
       
       // For guest results, show results directly, for authenticated users navigate to results page
 			if (result.isGuestResult) {
@@ -502,6 +332,129 @@ export default function TestPage() {
       });
     },
   });
+
+  // Auto-save answers every 30 seconds (offline-first) - НЕ в режиме просмотра
+  // Используем refs чтобы избежать пересоздания useEffect при изменении данных
+  const userAnswersRef = useRef(userAnswers);
+  const timeLeftRef = useRef(timeLeft);
+  const testDataRef = useRef(testData);
+  const finalTestDataRef = useRef(finalTestData);
+  const getOfflineTestRef = useRef(getOfflineTest);
+  const toastRef = useRef(toast);
+  
+  // Обновляем refs после каждого рендера (это безопасно, не вызывает ре-рендер)
+  // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
+  /*
+  useEffect(() => {
+    if (renderCount.current > 10) {
+      console.log('📌 Refs updated');
+    }
+    userAnswersRef.current = userAnswers;
+    timeLeftRef.current = timeLeft;
+    testDataRef.current = testData;
+    finalTestDataRef.current = finalTestData;
+    getOfflineTestRef.current = getOfflineTest;
+    toastRef.current = toast;
+  });
+  */
+  
+  // Обновляем refs напрямую в render phase (это безопасно)
+  userAnswersRef.current = userAnswers;
+  timeLeftRef.current = timeLeft;
+  testDataRef.current = testData;
+  finalTestDataRef.current = finalTestData;
+  getOfflineTestRef.current = getOfflineTest;
+  toastRef.current = toast;
+  
+  useEffect(() => {
+    if (isReviewMode) {
+      return; // Не сохраняем в режиме просмотра
+    }
+    
+    const interval = setInterval(async () => {
+      const currentAnswers = userAnswersRef.current;
+      const currentTestData = testDataRef.current;
+      const currentFinalTestData = finalTestDataRef.current;
+      const currentTimeLeft = timeLeftRef.current;
+      
+      if (variantId && currentTestData && Object.keys(currentAnswers).length > 0) {
+        try {
+          const activeTest: ActiveTest = {
+            id: `${variantId}-${user?.id}`,
+            variantId,
+            variant: {
+              ...currentTestData.variant,
+              block: currentFinalTestData.variant.block || {
+                hasCalculator: false,
+                hasPeriodicTable: false,
+              }
+            },
+            testData: currentFinalTestData.testData,
+            userAnswers: currentAnswers,
+            startedAt: testStartTime,
+            lastSavedAt: Date.now(),
+            timeSpent: (240 * 60) - currentTimeLeft,
+            isCompleted: false,
+            syncStatus: 'pending',
+            syncAttempts: 0
+          };
+          
+          await saveDraftTest(activeTest);
+          
+          // Fallback to localStorage
+          localStorage.setItem(`test_${variantId}_answers`, JSON.stringify(currentAnswers));
+        } catch (error) {
+          console.error('Failed to save test draft:', error);
+          // Fallback to localStorage only
+          localStorage.setItem(`test_${variantId}_answers`, JSON.stringify(currentAnswers));
+        }
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [variantId, user?.id, testStartTime, saveDraftTest, isReviewMode]);
+
+  // Load saved answers on component mount (offline-first) - НЕ в режиме просмотра
+  useEffect(() => {
+    if (isReviewMode) {
+      return; // Не загружаем сохраненные данные в режиме просмотра
+    }
+    
+    if (variantId && user?.id) {
+      const loadSavedTest = async () => {
+        try {
+          // Try offline database first - используем ref чтобы не зависеть от getOfflineTest
+          const offlineTest = await getOfflineTestRef.current(`${variantId}-${user.id}`);
+          if (offlineTest) {
+            setUserAnswers(offlineTest.userAnswers);
+            setTimeLeft(Math.max(0, 240 * 60 - offlineTest.timeSpent));
+            setIsOfflineMode(true);
+            
+            toastRef.current({
+              title: "Тест восстановлен",
+              description: "Продолжаем с сохраненного места",
+            });
+            return;
+          }
+          
+          // Fallback to localStorage
+          const savedAnswers = localStorage.getItem(`test_${variantId}_answers`);
+          if (savedAnswers) {
+            setUserAnswers(JSON.parse(savedAnswers));
+          }
+        } catch (error) {
+          console.error('Failed to load saved test:', error);
+          // Fallback to localStorage
+          const savedAnswers = localStorage.getItem(`test_${variantId}_answers`);
+          if (savedAnswers) {
+            setUserAnswers(JSON.parse(savedAnswers));
+          }
+        }
+      };
+      
+      loadSavedTest();
+    }
+  }, [variantId, user?.id, isReviewMode]);
 
   // Определяем handleTimeUp ДО любых условных return (правило хуков)
   const handleTimeUp = useCallback(() => {
