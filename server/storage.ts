@@ -1446,6 +1446,73 @@ export class DatabaseStorage implements IStorage {
       ));
     return !!subscription;
   }
+  // В storage.ts добавим эти функции
+  async getActiveTestSession(userId: string, variantId: string) {
+    const [session] = await db
+      .select()
+      .from(testSessions)
+      .where(
+        and(
+          eq(testSessions.userId, userId),
+          eq(testSessions.variantId, variantId),
+          eq(testSessions.status, "draft")
+        )
+      )
+      .limit(1);
+  
+    return session || null;
+  }
+  
+  async createTestSession(data: InsertTestSession) {
+    const [session] = await db
+      .insert(testSessions)
+      .values(data)
+      .returning();
+  
+    return session;
+  }
+  
+  async updateTestSession(userId: string, variantId: string, updates: Partial<TestSession>) {
+    const [session] = await db
+      .update(testSessions)
+      .set({
+        ...updates,
+        lastSavedAt: new Date().toISOString()
+      })
+      .where(
+        and(
+          eq(testSessions.userId, userId),
+          eq(testSessions.variantId, variantId),
+          eq(testSessions.status, "draft")
+        )
+      )
+      .returning();
+  
+    return session || null;
+  }
+  
+  async completeTestSession(userId: string, variantId: string, data: Partial<TestSession>) {
+    const [session] = await db
+      .update(testSessions)
+      .set(data)
+      .where(
+        and(
+          eq(testSessions.userId, userId),
+          eq(testSessions.variantId, variantId)
+        )
+      )
+      .returning();
+  
+    return session || null;
+  }
+  
+  async getUserTestSessions(userId: string) {
+    return await db
+      .select()
+      .from(testSessions)
+      .where(eq(testSessions.userId, userId))
+      .orderBy(desc(testSessions.lastSavedAt));
+  }
 }
 
 export const storage = new DatabaseStorage();
