@@ -114,7 +114,6 @@ export const testResults = pgTable("test_results", {
   completedAt: timestamp("completed_at").defaultNow(),
 });
 
-// Добавить после таблицы testResults
 export const testAttempts = pgTable("test_attempts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -164,203 +163,6 @@ export const quotes = pgTable("quotes", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Video proctoring schema removed
-
-// Insert schemas
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  email: true,
-  password: true,
-});
-
-export const insertBlockSchema = createInsertSchema(blocks).omit({
-  id: true,
-});
-
-export const insertVariantSchema = createInsertSchema(variants).omit({
-  id: true,
-});
-
-export const insertSubjectSchema = createInsertSchema(subjects).omit({
-  id: true,
-});
-
-export const insertQuestionSchema = createInsertSchema(questions).omit({
-  id: true,
-});
-
-export const insertAnswerSchema = createInsertSchema(answers).omit({
-  id: true,
-});
-
-export const updateAnswerSchema = insertAnswerSchema.partial();
-
-export const insertTestResultSchema = createInsertSchema(testResults).omit({
-  id: true,
-  completedAt: true,
-});
-
-export const insertNotificationSchema = createInsertSchema(notifications).omit({
-  id: true,
-  createdAt: true,
-  readAt: true,
-});
-
-export const insertNotificationSettingsSchema = createInsertSchema(notificationSettings).omit({
-  updatedAt: true,
-});
-
-export const insertReminderSchema = createInsertSchema(reminders).omit({
-  id: true,
-  createdAt: true,
-  lastSentAt: true,
-});
-
-export const insertQuoteSchema = createInsertSchema(quotes).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-export const insertTestAttemptSchema = createInsertSchema(testAttempts).omit({
-  id: true,
-  startedAt: true,
-  completedAt: true,
-});
-// insertVideoRecordingSchema removed with video proctoring
-
-// Analytics Zod DTO schemas
-export const analyticsOverviewSchema = z.object({
-  totalTests: z.number(),
-  averageScore: z.number(),
-  totalTimeSpent: z.number(),
-  bestSubject: z.string(),
-  worstSubject: z.string(),
-  totalQuestions: z.number(),
-  correctAnswers: z.number(),
-  recentActivity: z.number(),
-});
-
-export const subjectAggregateSchema = z.object({
-  subjectName: z.string(),
-  testsCount: z.number(),
-  averageScore: z.number(),
-  totalQuestions: z.number(),
-  correctAnswers: z.number(),
-  averageTimeSpent: z.number(),
-});
-
-export const historyPointSchema = z.object({
-  date: z.string(),
-  testsCompleted: z.number(),
-  averageScore: z.number(),
-  totalTimeSpent: z.number(),
-});
-
-export const correctnessBreakdownSchema = z.object({
-  date: z.string(),
-  correctAnswers: z.number(),
-  incorrectAnswers: z.number(),
-  totalQuestions: z.number(),
-});
-
-export const comparisonStatsSchema = z.object({
-  userRank: z.number(),
-  totalUsers: z.number(),
-  userScore: z.number(),
-  averageScore: z.number(),
-  percentile: z.number(),
-  topUserScore: z.number(),
-});
-
-// Types
-export type User = typeof users.$inferSelect;
-export type InsertUser = z.infer<typeof insertUserSchema>;
-
-export type Block = typeof blocks.$inferSelect;
-export type InsertBlock = z.infer<typeof insertBlockSchema>;
-
-export type Variant = typeof variants.$inferSelect;
-export type InsertVariant = z.infer<typeof insertVariantSchema>;
-
-export type Subject = typeof subjects.$inferSelect;
-export type InsertSubject = z.infer<typeof insertSubjectSchema>;
-
-export type Question = typeof questions.$inferSelect;
-export type InsertQuestion = z.infer<typeof insertQuestionSchema>;
-
-export type Answer = typeof answers.$inferSelect;
-export type InsertAnswer = z.infer<typeof insertAnswerSchema>;
-
-export type TestResult = typeof testResults.$inferSelect;
-export type InsertTestResult = z.infer<typeof insertTestResultSchema>;
-
-export type SubjectProgress = typeof subjectProgress.$inferSelect;
-export type UserRanking = typeof userRankings.$inferSelect;
-// Типы
-export type TestAttempt = typeof testAttempts.$inferSelect;
-export type InsertTestAttempt = z.infer<typeof insertTestAttemptSchema>;
-// VideoRecording types removed with proctoring schema
-
-// Notification types
-export type Notification = typeof notifications.$inferSelect;
-export type InsertNotification = z.infer<typeof insertNotificationSchema>;
-
-export type NotificationSettings = typeof notificationSettings.$inferSelect;
-export type InsertNotificationSettings = z.infer<typeof insertNotificationSettingsSchema>;
-
-export type Reminder = typeof reminders.$inferSelect;
-export type InsertReminder = z.infer<typeof insertReminderSchema>;
-
-export type Quote = typeof quotes.$inferSelect;
-export type InsertQuote = z.infer<typeof insertQuoteSchema>;
-
-// Analytics types
-export type AnalyticsOverview = z.infer<typeof analyticsOverviewSchema>;
-export type SubjectAggregate = z.infer<typeof subjectAggregateSchema>;
-export type HistoryPoint = z.infer<typeof historyPointSchema>;
-export type CorrectnessBreakdown = z.infer<typeof correctnessBreakdownSchema>;
-export type ComparisonStats = z.infer<typeof comparisonStatsSchema>;
-
-// Export types and schemas
-export const exportTypeSchema = z.enum([
-  "TEST_REPORT", 
-  "USER_ANALYTICS", 
-  "RANKINGS", 
-  "PERIOD_SUMMARY"
-]);
-
-export const exportFormatSchema = z.enum([
-  "PDF",
-  "EXCEL"
-]);
-
-export const exportStatusSchema = z.enum([
-  "PENDING",
-  "IN_PROGRESS", 
-  "COMPLETED",
-  "FAILED"
-]);
-
-export type ExportType = z.infer<typeof exportTypeSchema>;
-export type ExportFormat = z.infer<typeof exportFormatSchema>;
-export type ExportStatus = z.infer<typeof exportStatusSchema>;
-
-// Date range schema for exports
-export const dateRangeSchema = z.object({
-  from: z.string().optional(),
-  to: z.string().optional(),
-});
-
-// Export options schema
-export const exportOptionsSchema = z.object({
-  dateRange: dateRangeSchema.optional(),
-  subjects: z.array(z.string()).optional(),
-  includeCharts: z.boolean().default(true),
-  columns: z.array(z.string()).optional(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-});
-
 // Export jobs table
 export const exportJobs = pgTable("export_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -378,35 +180,6 @@ export const exportJobs = pgTable("export_jobs", {
   completedAt: timestamp("completed_at"),
   expiresAt: timestamp("expires_at"),
 });
-
-export const insertExportJobSchema = createInsertSchema(exportJobs).omit({
-  id: true,
-  createdAt: true,
-  completedAt: true,
-});
-
-export type ExportJob = typeof exportJobs.$inferSelect;
-export type InsertExportJob = z.infer<typeof insertExportJobSchema>;
-export type ExportOptions = z.infer<typeof exportOptionsSchema>;
-
-// Payment system schemas
-export const subscriptionStatusSchema = z.enum([
-  "ACTIVE",
-  "CANCELLED", 
-  "EXPIRED",
-  "PENDING"
-]);
-
-export const paymentStatusSchema = z.enum([
-  "PENDING",
-  "COMPLETED",
-  "FAILED",
-  "CANCELLED",
-  "REFUNDED"
-]);
-
-export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;
-export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
 
 // Subscription plans table
 export const subscriptionPlans = pgTable("subscription_plans", {
@@ -455,7 +228,74 @@ export const payments = pgTable("payments", {
   completedAt: timestamp("completed_at"),
 });
 
-// Insert schemas for payments
+// Insert schemas
+export const insertUserSchema = createInsertSchema(users).pick({
+  username: true,
+  email: true,
+  password: true,
+});
+
+export const insertBlockSchema = createInsertSchema(blocks).omit({
+  id: true,
+});
+
+export const insertVariantSchema = createInsertSchema(variants).omit({
+  id: true,
+});
+
+export const insertSubjectSchema = createInsertSchema(subjects).omit({
+  id: true,
+});
+
+export const insertQuestionSchema = createInsertSchema(questions).omit({
+  id: true,
+});
+
+export const insertAnswerSchema = createInsertSchema(answers).omit({
+  id: true,
+});
+
+export const updateAnswerSchema = insertAnswerSchema.partial();
+
+export const insertTestResultSchema = createInsertSchema(testResults).omit({
+  id: true,
+  completedAt: true,
+});
+
+export const insertTestAttemptSchema = createInsertSchema(testAttempts).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  readAt: true,
+});
+
+export const insertNotificationSettingsSchema = createInsertSchema(notificationSettings).omit({
+  updatedAt: true,
+});
+
+export const insertReminderSchema = createInsertSchema(reminders).omit({
+  id: true,
+  createdAt: true,
+  lastSentAt: true,
+});
+
+export const insertQuoteSchema = createInsertSchema(quotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertExportJobSchema = createInsertSchema(exportJobs).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
 export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({
   id: true,
   createdAt: true,
@@ -474,9 +314,163 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   completedAt: true,
 });
 
+// Analytics Zod DTO schemas
+export const analyticsOverviewSchema = z.object({
+  totalTests: z.number(),
+  averageScore: z.number(),
+  totalTimeSpent: z.number(),
+  bestSubject: z.string(),
+  worstSubject: z.string(),
+  totalQuestions: z.number(),
+  correctAnswers: z.number(),
+  recentActivity: z.number(),
+});
+
+export const subjectAggregateSchema = z.object({
+  subjectName: z.string(),
+  testsCount: z.number(),
+  averageScore: z.number(),
+  totalQuestions: z.number(),
+  correctAnswers: z.number(),
+  averageTimeSpent: z.number(),
+});
+
+export const historyPointSchema = z.object({
+  date: z.string(),
+  testsCompleted: z.number(),
+  averageScore: z.number(),
+  totalTimeSpent: z.number(),
+});
+
+export const correctnessBreakdownSchema = z.object({
+  date: z.string(),
+  correctAnswers: z.number(),
+  incorrectAnswers: z.number(),
+  totalQuestions: z.number(),
+});
+
+export const comparisonStatsSchema = z.object({
+  userRank: z.number(),
+  totalUsers: z.number(),
+  userScore: z.number(),
+  averageScore: z.number(),
+  percentile: z.number(),
+  topUserScore: z.number(),
+});
+
+// Export types and schemas
+export const exportTypeSchema = z.enum([
+  "TEST_REPORT", 
+  "USER_ANALYTICS", 
+  "RANKINGS", 
+  "PERIOD_SUMMARY"
+]);
+
+export const exportFormatSchema = z.enum([
+  "PDF",
+  "EXCEL"
+]);
+
+export const exportStatusSchema = z.enum([
+  "PENDING",
+  "IN_PROGRESS", 
+  "COMPLETED",
+  "FAILED"
+]);
+
+export type ExportType = z.infer<typeof exportTypeSchema>;
+export type ExportFormat = z.infer<typeof exportFormatSchema>;
+export type ExportStatus = z.infer<typeof exportStatusSchema>;
+
+// Date range schema for exports
+export const dateRangeSchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+});
+
+// Export options schema
+export const exportOptionsSchema = z.object({
+  dateRange: dateRangeSchema.optional(),
+  subjects: z.array(z.string()).optional(),
+  includeCharts: z.boolean().default(true),
+  columns: z.array(z.string()).optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+});
+
+// Payment system schemas
+export const subscriptionStatusSchema = z.enum([
+  "ACTIVE",
+  "CANCELLED", 
+  "EXPIRED",
+  "PENDING"
+]);
+
+export const paymentStatusSchema = z.enum([
+  "PENDING",
+  "COMPLETED",
+  "FAILED",
+  "CANCELLED",
+  "REFUNDED"
+]);
+
+export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;
+export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
+
+// Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type Block = typeof blocks.$inferSelect;
+export type InsertBlock = z.infer<typeof insertBlockSchema>;
+
+export type Variant = typeof variants.$inferSelect;
+export type InsertVariant = z.infer<typeof insertVariantSchema>;
+
+export type Subject = typeof subjects.$inferSelect;
+export type InsertSubject = z.infer<typeof insertSubjectSchema>;
+
+export type Question = typeof questions.$inferSelect;
+export type InsertQuestion = z.infer<typeof insertQuestionSchema>;
+
+export type Answer = typeof answers.$inferSelect;
+export type InsertAnswer = z.infer<typeof insertAnswerSchema>;
+
+export type TestResult = typeof testResults.$inferSelect;
+export type InsertTestResult = z.infer<typeof insertTestResultSchema>;
+
+export type TestAttempt = typeof testAttempts.$inferSelect;
+export type InsertTestAttempt = z.infer<typeof insertTestAttemptSchema>;
+
+export type SubjectProgress = typeof subjectProgress.$inferSelect;
+export type UserRanking = typeof userRankings.$inferSelect;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+export type NotificationSettings = typeof notificationSettings.$inferSelect;
+export type InsertNotificationSettings = z.infer<typeof insertNotificationSettingsSchema>;
+
+export type Reminder = typeof reminders.$inferSelect;
+export type InsertReminder = z.infer<typeof insertReminderSchema>;
+
+export type Quote = typeof quotes.$inferSelect;
+export type InsertQuote = z.infer<typeof insertQuoteSchema>;
+
+export type ExportJob = typeof exportJobs.$inferSelect;
+export type InsertExportJob = z.infer<typeof insertExportJobSchema>;
+export type ExportOptions = z.infer<typeof exportOptionsSchema>;
+
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type UserSubscription = typeof userSubscriptions.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
 export type InsertUserSubscription = z.infer<typeof insertUserSubscriptionSchema>;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+
+// Analytics types
+export type AnalyticsOverview = z.infer<typeof analyticsOverviewSchema>;
+export type SubjectAggregate = z.infer<typeof subjectAggregateSchema>;
+export type HistoryPoint = z.infer<typeof historyPointSchema>;
+export type CorrectnessBreakdown = z.infer<typeof correctnessBreakdownSchema>;
+export type ComparisonStats = z.infer<typeof comparisonStatsSchema>;
