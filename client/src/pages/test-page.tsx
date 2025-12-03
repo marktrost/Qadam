@@ -54,14 +54,6 @@ interface TestSubject {
 interface TestData {
   variant: Variant & { block: Block };
   testData: TestSubject[];
-  existingAttempt?: {
-    id: string;
-    testSessionId: string;
-    answers: Record<string, string | string[]>;
-    timeSpent: number;
-    startedAt: string;
-  };
-  testSessionId?: string;
 }
 
 export default function TestPage() {
@@ -102,11 +94,6 @@ export default function TestPage() {
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
-  const [testSessionId, setTestSessionId] = useState<string>(() => {
-    // Восстанавливаем testSessionId из localStorage или создаем новый
-    const saved = variantId ? localStorage.getItem(`testSession_${variantId}`) : null;
-    return saved || `${variantId}_${Date.now()}_${user?.id || 'guest'}`;
-  });
 
   // Мемоизированные callback для управления модальными окнами
   const handleCloseCalculator = useCallback(() => {
@@ -181,36 +168,11 @@ export default function TestPage() {
     if (timerStartedRef.current) return;
     if (isReviewMode) return;
     
-    // Восстанавливаем таймер из localStorage при старте
-    const savedTimerKey = `timer_${variantId}_${testSessionId}`;
-    const savedTimer = localStorage.getItem(savedTimerKey);
-    if (savedTimer && variantId && testSessionId) {
-      try {
-        const parsed = JSON.parse(savedTimer);
-        const elapsed = Math.floor((Date.now() - parsed.timestamp) / 1000);
-        const restoredTime = Math.max(parsed.timeLeft - elapsed, 0);
-        setTimeLeft(restoredTime);
-        console.log(`[DEBUG] Таймер восстановлен: ${restoredTime} секунд`);
-      } catch (error) {
-        console.error('[DEBUG] Ошибка восстановления таймера:', error);
-      }
-    }
-    
     timerStartedRef.current = true;
     
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         const newValue = prev <= 1 ? 0 : prev - 1;
-        
-        // Сохраняем таймер в localStorage каждую секунду
-        if (variantId && testSessionId) {
-          localStorage.setItem(`timer_${variantId}_${testSessionId}`, 
-            JSON.stringify({
-              timeLeft: newValue,
-              timestamp: Date.now(),
-            })
-          );
-        }
         
         if (newValue === 0 && timerRef.current) {
           clearInterval(timerRef.current);
@@ -228,7 +190,7 @@ export default function TestPage() {
         timerRef.current = null;
       }
     };
-  }, [isReviewMode, variantId, testSessionId]);
+  }, [isReviewMode]);
 
   // pagination window size intentionally unified across devices
 
@@ -238,25 +200,6 @@ export default function TestPage() {
     queryKey: [isPublicTest ? "/api/public/variants" : "/api/variants", variantId, "test"],
     enabled: !!variantId && !isReviewMode,
     initialData: undefined, // НЕ используем initialData в режиме просмотра
-    onSuccess: (data) => {
-      if (data.testSessionId) {
-        setTestSessionId(data.testSessionId);
-        if (variantId) {
-          localStorage.setItem(`testSession_${variantId}`, data.testSessionId);
-        }
-      }
-      
-      // Восстанавливаем из существующей попытки
-      if (data.existingAttempt) {
-        setUserAnswers(data.existingAttempt.answers || {});
-        setTimeLeft(Math.max(0, 240 * 60 - (data.existingAttempt.timeSpent || 0)));
-        
-        toast({
-          title: "Тест восстановлен",
-          description: "Продолжаем с сохраненного места",
-        });
-      }
-    },
   });
 
   // В режиме просмотра используем ТОЛЬКО данные из reviewTestData (API)
@@ -276,7 +219,7 @@ export default function TestPage() {
 
   const submitTestMutation = useMutation({
     mutationFn: async (answers: Record<string, string | string[]>) => {
-      // Proctoring removed: no action needed here.
+  // Proctoring removed: no action needed here.
 
       try {
         // Try online submission first
@@ -284,7 +227,6 @@ export default function TestPage() {
           const endpoint = isPublicTest ? "/api/public/test-results" : "/api/test-results";
           const res = await apiRequest("POST", endpoint, {
             variantId,
-            testSessionId, // Добавляем testSessionId
             answers,
             timeSpent: (240 * 60) - timeLeft,
           });
@@ -339,52 +281,48 @@ export default function TestPage() {
         }
       }
       
-      // Clean up saved data
-      if (variantId) {
-        localStorage.removeItem(`test_${variantId}_answers`);
-        localStorage.removeItem(`testSession_${variantId}`);
-        localStorage.removeItem(`timer_${variantId}_${testSessionId}`);
-      }
+      // Clean up offline data
+      localStorage.removeItem(`test_${variantId}_answers`);
       
       // For guest results, show results directly, for authenticated users navigate to results page
-      if (result.isGuestResult) {
-        setTimeout(() => {
-          // Для гостей нужно создать testData с флагами isCorrect
-          const guestTestDataWithCorrectFlags = {
-            variant: finalTestData.variant,
-            testData: finalTestData.testData.map(subject => ({
-              subject: subject.subject,
-              questions: subject.questions.map(question => ({
-                ...question,
-                answers: question.answers.map(answer => ({
-                  ...answer,
-                  isCorrect: false // Или нужно получить реальные данные?
-                }))
-              }))
-            }))
-          };
-          
-          setLocation("/", { 
-            state: { 
-              guestResult: result,
-              testData: guestTestDataWithCorrectFlags, 
-              userAnswers,
-              showResults: true
-            } 
-          });
-        }, 0);
-      } else {
-        // Для авторизованных используем данные из response
-        const responseData = result as any;
-        const reviewTestData = responseData.testData || finalTestData;
-        
-        sessionStorage.setItem('testResultData', JSON.stringify({ 
-          result: responseData.result || result, 
-          testData: reviewTestData, 
-          userAnswers: responseData.userAnswers || userAnswers 
-        }));
-        setLocation("/results");
-      }
+			if (result.isGuestResult) {
+			  setTimeout(() => {
+			    // Для гостей нужно создать testData с флагами isCorrect
+			    const guestTestDataWithCorrectFlags = {
+			      variant: finalTestData.variant,
+			      testData: finalTestData.testData.map(subject => ({
+			        subject: subject.subject,
+			        questions: subject.questions.map(question => ({
+			          ...question,
+			          answers: question.answers.map(answer => ({
+			            ...answer,
+			            isCorrect: false // Или нужно получить реальные данные?
+			          }))
+			        }))
+			      }))
+			    };
+			    
+			    setLocation("/", { 
+			      state: { 
+			        guestResult: result,
+			        testData: guestTestDataWithCorrectFlags, 
+			        userAnswers,
+			        showResults: true
+			      } 
+			    });
+			  }, 0);
+			} else {
+			  // Для авторизованных используем данные из response
+			  const responseData = result as any;
+			  const reviewTestData = responseData.testData || finalTestData;
+			  
+			  sessionStorage.setItem('testResultData', JSON.stringify({ 
+			    result: responseData.result || result, 
+			    testData: reviewTestData, 
+			    userAnswers: responseData.userAnswers || userAnswers 
+			  }));
+			  setLocation("/results");
+			}
     },
     onError: () => {
       toast({
@@ -395,23 +333,6 @@ export default function TestPage() {
     },
   });
 
-  // Функция для сохранения прогресса на сервере
-  const saveProgressToServer = useCallback(async () => {
-    if (!variantId || !testSessionId || !user || isReviewMode) return;
-    
-    try {
-      await apiRequest("POST", "/api/test-progress/save", {
-        variantId,
-        testSessionId,
-        answers: userAnswers,
-        timeSpent: (240 * 60) - timeLeft,
-      });
-      console.log('[DEBUG] Прогресс сохранен на сервере');
-    } catch (error) {
-      console.error('[DEBUG] Ошибка сохранения прогресса на сервере:', error);
-    }
-  }, [variantId, testSessionId, user, userAnswers, timeLeft, isReviewMode]);
-
   // Auto-save answers every 30 seconds (offline-first) - НЕ в режиме просмотра
   // Используем refs чтобы избежать пересоздания useEffect при изменении данных
   const userAnswersRef = useRef(userAnswers);
@@ -420,7 +341,22 @@ export default function TestPage() {
   const finalTestDataRef = useRef(finalTestData);
   const getOfflineTestRef = useRef(getOfflineTest);
   const toastRef = useRef(toast);
-  const saveProgressToServerRef = useRef(saveProgressToServer);
+  
+  // Обновляем refs после каждого рендера (это безопасно, не вызывает ре-рендер)
+  // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
+  /*
+  useEffect(() => {
+    if (renderCount.current > 10) {
+      console.log('📌 Refs updated');
+    }
+    userAnswersRef.current = userAnswers;
+    timeLeftRef.current = timeLeft;
+    testDataRef.current = testData;
+    finalTestDataRef.current = finalTestData;
+    getOfflineTestRef.current = getOfflineTest;
+    toastRef.current = toast;
+  });
+  */
   
   // Обновляем refs напрямую в render phase (это безопасно)
   userAnswersRef.current = userAnswers;
@@ -429,7 +365,6 @@ export default function TestPage() {
   finalTestDataRef.current = finalTestData;
   getOfflineTestRef.current = getOfflineTest;
   toastRef.current = toast;
-  saveProgressToServerRef.current = saveProgressToServer;
   
   useEffect(() => {
     if (isReviewMode) {
@@ -444,12 +379,6 @@ export default function TestPage() {
       
       if (variantId && currentTestData && Object.keys(currentAnswers).length > 0) {
         try {
-          // Сохраняем на сервер (если пользователь авторизован)
-          if (user) {
-            saveProgressToServerRef.current();
-          }
-          
-          // Сохраняем в offline storage
           const activeTest: ActiveTest = {
             id: `${variantId}-${user?.id}`,
             variantId,
@@ -540,38 +469,6 @@ export default function TestPage() {
   useEffect(() => {
     handleTimeUpRef.current = handleTimeUp;
   }, [handleTimeUp]);
-
-  // Функция для начала нового теста
-  const handleStartNewTest = useCallback(() => {
-    if (!variantId) return;
-    
-    // Генерируем новый ID сессии
-    const newSessionId = `${variantId}_${Date.now()}_${user?.id || 'guest'}`;
-    setTestSessionId(newSessionId);
-    localStorage.setItem(`testSession_${variantId}`, newSessionId);
-    
-    // Сбрасываем состояние
-    setUserAnswers({});
-    setTimeLeft(240 * 60);
-    setCurrentQuestionIndex(0);
-    
-    // Очищаем сохраненные данные
-    localStorage.removeItem(`test_${variantId}_answers`);
-    localStorage.removeItem(`timer_${variantId}_${newSessionId}`);
-    
-    // Запрашиваем тест с параметром new=true
-    queryClient.invalidateQueries({ queryKey: [isPublicTest ? "/api/public/variants" : "/api/variants", variantId, "test"] });
-    
-    toast({
-      title: "Новый тест начат",
-      description: "Начните прохождение с первого вопроса",
-    });
-  }, [variantId, user?.id, isPublicTest, toast]);
-
-  // Добавляем кнопку "Начать новый тест" в UI
-  const showNewTestButton = useMemo(() => {
-    return !isReviewMode && !isPublicTest && user && Object.keys(userAnswers).length > 0;
-  }, [isReviewMode, isPublicTest, user, userAnswers]);
   
   // Redirect to home if no match - ВАЖНО: в useEffect чтобы не вызывать setState в render phase!
   useEffect(() => {
@@ -612,6 +509,8 @@ export default function TestPage() {
     : !!(finalTestData && finalTestData.variant && finalTestData.variant.block && finalTestData.testData);
   
   if (!hasRequiredData) {
+
+    
     return (
       <div className="min-h-screen bg-background">
         <main className="container mx-auto px-4 lg:px-6 py-8">
@@ -627,6 +526,10 @@ export default function TestPage() {
         </main>
       </div>
     );
+  }
+
+  // Краткое логирование данных в режиме просмотра
+  if (isReviewMode && testData) {
   }
 
   const currentQuestion = allQuestions[currentQuestionIndex];
@@ -656,33 +559,33 @@ export default function TestPage() {
 
   const currentQuestionInfo = getQuestionNumberInSubject(currentQuestionIndex);
 
-  const handleAnswerSelect = (questionId: string, answerId: string) => {
-    // Всегда множественный выбор - toggle в массиве
-    setUserAnswers(prev => {
-      const current = prev[questionId];
-      const currentArray = Array.isArray(current) ? current : [];
-      
-      if (currentArray.includes(answerId)) {
-        // Убираем ответ
-        return {
-          ...prev,
-          [questionId]: currentArray.filter(id => id !== answerId),
-        };
-      } else {
-        // Добавляем ответ (максимум 3)
-        const newArray = [...currentArray, answerId];
-        if (newArray.length <= 3) {
-          return {
-            ...prev,
-            [questionId]: newArray,
-          };
-        } else {
-          // Если больше 3х - не добавляем
-          return prev;
-        }
-      }
-    });
-  };
+	const handleAnswerSelect = (questionId: string, answerId: string) => {
+	  // Всегда множественный выбор - toggle в массиве
+	  setUserAnswers(prev => {
+	    const current = prev[questionId];
+	    const currentArray = Array.isArray(current) ? current : [];
+	    
+	    if (currentArray.includes(answerId)) {
+	      // Убираем ответ
+	      return {
+	        ...prev,
+	        [questionId]: currentArray.filter(id => id !== answerId),
+	      };
+	    } else {
+	      // Добавляем ответ (максимум 3)
+	      const newArray = [...currentArray, answerId];
+	      if (newArray.length <= 3) {
+	        return {
+	          ...prev,
+	          [questionId]: newArray,
+	        };
+	      } else {
+	        // Если больше 3х - не добавляем
+	        return prev;
+	      }
+	    }
+	  });
+	};
 
   const handleSubmitTest = () => {
     setShowSubmitDialog(true);
@@ -693,7 +596,8 @@ export default function TestPage() {
     submitTestMutation.mutate(userAnswers);
   };
 
-  // Mobile view with MobileTestNavigation
+// Mobile view with MobileTestNavigation
+// Mobile view with MobileTestNavigation
   if (isMobile) {
     return (
       <div className="min-h-screen bg-background">
@@ -720,8 +624,7 @@ export default function TestPage() {
           isOfflineMode={isOfflineMode}
           hasCalculator={finalTestData?.variant?.block?.hasCalculator === true}
           hasPeriodicTable={finalTestData?.variant?.block?.hasPeriodicTable === true}
-          onShowSubmitDialog={() => setShowSubmitDialog(true)}
-          onStartNewTest={showNewTestButton ? handleStartNewTest : undefined}
+          onShowSubmitDialog={() => setShowSubmitDialog(true)} // ← Добавляем этот prop
         />
       </div>
     );
@@ -732,7 +635,7 @@ export default function TestPage() {
     <div className="min-h-screen bg-background">
       <main className="w-full mx-auto px-0 py-8">
         {/* Test Header */}
-        <div className="mb-6 px-4 lg:px-6">
+          <div className="mb-6 px-4 lg:px-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 space-y-3 md:space-y-0">
             <div>
               <div className="flex items-center gap-3 mb-2">
@@ -754,18 +657,6 @@ export default function TestPage() {
             </div>
             <div className="flex items-center space-x-4">
               <NetworkStatus className="md:hidden" />
-              {/* Кнопка "Начать новый тест" */}
-              {showNewTestButton && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleStartNewTest}
-                  className="bg-green-50 text-green-700 hover:bg-green-100 border-green-300"
-                >
-                  <i className="fas fa-redo mr-2"></i>
-                  Начать новый тест
-                </Button>
-              )}
               {/* Таймер справа (только для ПК и режима тестирования) */}
               {!isReviewMode && (
                 <div className="hidden lg:flex items-center gap-2 bg-card border rounded-lg px-4 py-2 shadow-sm">
@@ -779,7 +670,7 @@ export default function TestPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6 px-4 lg:px-0">
+  <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6 px-4 lg:px-0">
           {/* Left subject menu (1 of 4) */}
           <div className="lg:col-span-1 lg:pl-0">
             <Card>
@@ -832,6 +723,8 @@ export default function TestPage() {
                 })}
               </CardContent>
             </Card>
+
+
           </div>
 
           {/* Question Content (center - 3 of 4 columns = 75%) */}
@@ -877,77 +770,78 @@ export default function TestPage() {
                   )}
                 </div>
                 
-                <div className="space-y-3">
-                  {currentQuestion?.answers.map((answer, index) => {
-                    // Всегда множественный выбор (можно выбрать до 3х ответов)
-                    const userAnswer = userAnswers[currentQuestion.id];
-                
-                    // Универсальная логика для isSelected
-                    const isSelected = Array.isArray(userAnswer) 
-                      ? userAnswer.includes(answer.id)
-                      : userAnswer === answer.id;
-                
-                    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
-                    
-                    if (isReviewMode) {
-                      if (isSelected && answer.isCorrect) {
-                        answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
-                      } else if (isSelected && !answer.isCorrect) {
-                        answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
-                      } else if (!isSelected && answer.isCorrect) {
-                        answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
-                      } else {
-                        answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
-                      }
-                    } else {
-                      answerStyle += isSelected 
-                        ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
-                        : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
-                    }
-                
-                    return (
-                      <button
-                        key={answer.id}
-                        type="button"
-                        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
-                        className={answerStyle}
-                        disabled={isReviewMode}
-                        data-testid={`button-answer-${answer.id}`}
-                      >
-                        {/* Checkbox indicator (всегда чекбокс) */}
-                        {!isReviewMode && (
-                          <div className="flex-shrink-0 mt-0.5">
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
-                            }`}>
-                              {isSelected && <span className="text-white text-xs">✓</span>}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Answer text */}
-                        <div className="flex-1 text-left">
-                          <span className="font-medium mr-3">
-                            {String.fromCharCode(65 + index)}.
-                          </span>
-                          {answer.text}
-                        </div>
-                        
-                        {/* Review mode indicators */}
-                        {isReviewMode && (() => {
-                          if (isSelected && answer.isCorrect) {
-                            return <span className="ml-2 text-blue-500 font-bold">✓</span>;
-                          } else if (isSelected && !answer.isCorrect) {
-                            return <span className="ml-2 text-red-600 font-bold">✗</span>;
-                          } else if (!isSelected && answer.isCorrect) {
-                            return <span className="ml-2 text-green-600 font-bold">✓</span>;
-                          }
-                          return null;
-                        })()}
-                      </button>
-                    );
-                  })}
-                </div>
+				<div className="space-y-3">
+				  {currentQuestion?.answers.map((answer, index) => {
+				    // Всегда множественный выбор (можно выбрать до 3х ответов)
+				    const hasMultipleAnswers = true;
+				    const userAnswer = userAnswers[currentQuestion.id];
+				
+				    // Универсальная логика для isSelected
+				    const isSelected = Array.isArray(userAnswer) 
+				      ? userAnswer.includes(answer.id)
+				      : userAnswer === answer.id;
+				
+				    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
+				    
+				    if (isReviewMode) {
+				      if (isSelected && answer.isCorrect) {
+				        answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
+				      } else if (isSelected && !answer.isCorrect) {
+				        answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
+				      } else if (!isSelected && answer.isCorrect) {
+				        answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
+				      } else {
+				        answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
+				      }
+				    } else {
+				      answerStyle += isSelected 
+				        ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
+				        : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
+				    }
+				
+				    return (
+				      <button
+				        key={answer.id}
+				        type="button"
+				        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
+				        className={answerStyle}
+				        disabled={isReviewMode}
+				        data-testid={`button-answer-${answer.id}`}
+				      >
+				        {/* Checkbox indicator (всегда чекбокс) */}
+				        {!isReviewMode && (
+				          <div className="flex-shrink-0 mt-0.5">
+				            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+				              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
+				            }`}>
+				              {isSelected && <span className="text-white text-xs">✓</span>}
+				            </div>
+				          </div>
+				        )}
+				        
+				        {/* Answer text */}
+				        <div className="flex-1 text-left">
+				          <span className="font-medium mr-3">
+				            {String.fromCharCode(65 + index)}.
+				          </span>
+				          {answer.text}
+				        </div>
+				        
+				        {/* Review mode indicators */}
+				        {isReviewMode && (() => {
+				          if (isSelected && answer.isCorrect) {
+				            return <span className="ml-2 text-blue-500 font-bold">✓</span>;
+				          } else if (isSelected && !answer.isCorrect) {
+				            return <span className="ml-2 text-red-600 font-bold">✗</span>;
+				          } else if (!isSelected && answer.isCorrect) {
+				            return <span className="ml-2 text-green-600 font-bold">✓</span>;
+				          }
+				          return null;
+				        })()}
+				      </button>
+				    );
+				  })}
+				</div>
                 
                 {/* Изображение решения - показывается только в режиме просмотра результатов */}
                 {isReviewMode && currentQuestion?.solutionImageUrl && (
@@ -1077,6 +971,8 @@ export default function TestPage() {
           {/* Right sidebar removed as per request */}
         </div>
 
+        {/* external pagination removed (navigation shown inside question card) */}
+
         {/* Fixed finish button bottom-right - только в режиме тестирования */}
         {!isReviewMode && (
           <div>
@@ -1163,6 +1059,8 @@ export default function TestPage() {
         </AlertDialog>
 
         {/* Video proctoring removed */}
+
+
       </main>
     </div>
   );
