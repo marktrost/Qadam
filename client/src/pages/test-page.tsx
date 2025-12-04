@@ -30,6 +30,8 @@ import MobileTestNavigation from "@/components/mobile-test-navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Variant, Block } from "@shared/schema";
 import type { ActiveTest } from "@/lib/offline-db";
+// В начало файла, после других импортов, добавьте:
+import MathJaxText from "@/components/MathJaxText";
 
 interface TestQuestion {
   id: string;
