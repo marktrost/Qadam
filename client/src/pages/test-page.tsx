@@ -743,7 +743,7 @@ export default function TestPage() {
                   {/* Текст вопроса */}
                   <div className="flex-1">
                     <div className="text-lg text-foreground leading-relaxed">
-                      {currentQuestion?.text}
+                      <MathJaxText text={currentQuestion?.text || ''} />
                     </div>
                     
                     {/* Multiple choice hint */}
