@@ -823,9 +823,12 @@ export default function TestPage() {
 				        
 				        {/* Answer text */}
 				        <div className="flex-1 text-left">
-				          <span className="font-medium mr-3">
-				            {String.fromCharCode(65 + index)}.
-				          </span>
+                          <div className="flex-1 text-left">
+                            <span className="font-medium mr-3">
+                              {String.fromCharCode(65 + index)}.
+                            </span>
+                            <MathJaxText text={answer.text} inline />
+                          </div>
 				          {answer.text}
 				        </div>
 				        
