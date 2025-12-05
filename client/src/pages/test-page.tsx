@@ -38,6 +38,13 @@ const containsMath = (text: string): boolean => {
   return /\\\(|\\\\\(|𝑎⃗|𝑏⃗|𝑐⃗|𝑑⃗|𝑒⃗|𝑓⃗|𝑔⃗|ℎ⃗|𝑖⃗|𝑗⃗|𝑘⃗|𝑙⃗|𝑚⃗|𝑛⃗|𝑜⃗|𝑝⃗|𝑞⃗|𝑟⃗|𝑠⃗|𝑡⃗|𝑢⃗|𝑣⃗|𝑤⃗|𝑥⃗|𝑦⃗|𝑧⃗/.test(text);
 };
 
+// Функция для проверки, содержит ли текст LaTeX формулы
+const containsMath = (text: string): boolean => {
+  if (!text) return false;
+  // Ищем: формулы \(...\), Unicode векторы, математические символы
+  return /\\\(|\\\\\(|\^|_|\{|\}|𝑎⃗|𝑏⃗|𝑐⃗|𝑑⃗|𝑒⃗|𝑓⃗|𝑔⃗|ℎ⃗|𝑖⃗|𝑗⃗|𝑘⃗|𝑙⃗|𝑚⃗|𝑛⃗|𝑜⃗|𝑝⃗|𝑞⃗|𝑟⃗|𝑠⃗|𝑡⃗|𝑢⃗|𝑣⃗|𝑤⃗|𝑥⃗|𝑦⃗|𝑧⃗|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int/.test(text);
+};
+
 // Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
@@ -48,6 +55,41 @@ const TextWithMath = ({ text }: { text: string }) => {
   let i = 0;
   
   while (i < text.length) {
+    // === ПРОВЕРКА ДЛЯ ВЕКТОРОВ ===
+    let foundVector = false;
+    
+    // Проверяем Unicode векторы (2 или 3 символа)
+    if (i < text.length - 1) {
+      const twoChars = text.substring(i, i + 2);
+      const threeChars = i < text.length - 2 ? text.substring(i, i + 3) : '';
+      
+      const vectors = [
+        '𝑎⃗', '𝑏⃗', '𝑐⃗', '𝑑⃗', '𝑒⃗', '𝑓⃗', '𝑔⃗', 'ℎ⃗', 
+        '𝑖⃗', '𝑗⃗', '𝑘⃗', '𝑙⃗', '𝑚⃗', '𝑛⃗', '𝑜⃗', '𝑝⃗',
+        '𝑞⃗', '𝑟⃗', '𝑠⃗', '𝑡⃗', '𝑢⃗', '𝑣⃗', '𝑤⃗', '𝑥⃗', '𝑦⃗', '𝑧⃗',
+        '𝑏⃗⃗'  // двойная стрелка
+      ];
+      
+      if (vectors.includes(twoChars) || vectors.includes(threeChars)) {
+        // Сохраняем предыдущий текст
+        if (currentText) {
+          parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+          currentText = '';
+        }
+        
+        // Обрабатываем вектор
+        let vector = vectors.includes(threeChars) ? threeChars : twoChars;
+        parts.push(<MathExpression key={`math-${parts.length}`} expression={vector} />);
+        
+        // Продвигаем индекс
+        i += vector.length;
+        foundVector = true;
+      }
+    }
+    
+    if (foundVector) continue;
+    
+    // === ПРОВЕРКА ДЛЯ LaTeX ФОРМУЛ ===
     // Ищем начало формулы: \( или \\(
     if ((text[i] === '\\' && i + 1 < text.length && text[i + 1] === '(') ||
         (text[i] === '\\' && i + 2 < text.length && text[i + 1] === '\\' && text[i + 2] === '(')) {
@@ -95,6 +137,7 @@ const TextWithMath = ({ text }: { text: string }) => {
       i = j;
       parts.push(<MathExpression key={`math-${parts.length}`} expression={formula} />);
     } else {
+      // Обычный текст
       currentText += text[i];
       i++;
     }
@@ -103,6 +146,11 @@ const TextWithMath = ({ text }: { text: string }) => {
   // Добавляем оставшийся текст
   if (currentText) {
     parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+  }
+  
+  // Если ничего не нашли, возвращаем обычный текст
+  if (parts.length === 0 && text) {
+    return <span>{text}</span>;
   }
   
   return <>{parts}</>;
