@@ -34,8 +34,8 @@ import MathExpression from "@/components/MathExpression";
 
 const containsMath = (text: string): boolean => {
   if (!text) return false;
-  // Ищем \( или \\( в тексте
-  return /\\\(|\\\\\(/.test(text);
+  // Ищем формулы или Unicode векторы
+  return /\\\(|\\\\\(|𝑎⃗|𝑏⃗|𝑐⃗|𝑑⃗|𝑒⃗|𝑓⃗|𝑔⃗|ℎ⃗|𝑖⃗|𝑗⃗|𝑘⃗|𝑙⃗|𝑚⃗|𝑛⃗|𝑜⃗|𝑝⃗|𝑞⃗|𝑟⃗|𝑠⃗|𝑡⃗|𝑢⃗|𝑣⃗|𝑤⃗|𝑥⃗|𝑦⃗|𝑧⃗/.test(text);
 };
 
 // Компонент для отображения текста со встроенными формулами
