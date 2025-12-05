@@ -32,46 +32,32 @@ import type { Variant, Block } from "@shared/schema";
 import type { ActiveTest } from "@/lib/offline-db";
 import MathExpression from "@/components/MathExpression";
 
-
 const containsMath = (text: string): boolean => {
   if (!text) return false;
   
-  // Ищем любые признаки математики:
+  // Проверяем на математические курсивные символы (Unicode диапазон)
+  const hasMathSymbols = /[\u{1D434}-\u{1D44D}\u{1D44E}-\u{1D467}]/u.test(text);
   
-  // 1. LaTeX команды
-  if (/\\\(|\\\\\(|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int/.test(text)) {
-    return true;
-  }
+  // Проверяем на векторы (символ с combining arrow U+20D7)
+  const hasVectors = /[a-zA-Z\u{1D434}-\u{1D44D}\u{1D44E}-\u{1D467}]⃗/u.test(text);
   
-  // 2. Математические символы
-  if (/\^|_|\{|\}|°|×|·/.test(text)) {
-    return true;
-  }
+  // Проверяем на LaTeX команды
+  const hasLatex = /\\\(|\\\\\(|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int/.test(text);
   
-  // 3. Векторы (символ с combining arrow)
-  if (/[𝑎-𝑧]⃗/.test(text)) {
-    console.log('Найден вектор в тексте:', text);
-    return true;
-  }
+  // Проверяем на математические символы
+  const hasMathChars = /\^|_|\{|\}|°|×|·/.test(text);
   
-  // 4. Степени вида x^2
-  if (/[a-zA-Z0-9\)]\^[0-9]/.test(text)) {
-    return true;
-  }
-  
-  return false;
+  return hasMathSymbols || hasVectors || hasLatex || hasMathChars;
 };
 
-// Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Если текст содержит математику - используем MathExpression для всего текста
+  // Если текст содержит математику - используем MathExpression
   if (containsMath(text)) {
     return <MathExpression expression={text} />;
   }
   
-  // Иначе обычный текст
   return <span>{text}</span>;
 };
 
