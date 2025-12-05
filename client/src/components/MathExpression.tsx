@@ -21,20 +21,37 @@ const MathExpression: React.FC<MathExpressionProps> = ({
         // Очищаем контейнер
         containerRef.current.innerHTML = '';
         
+        // Извлекаем LaTeX из обёртки \( ... \) если есть
+        let latexExpression = expression;
+        
+        // Удаляем \( в начале и \) в конце
+        if (latexExpression.startsWith('\\(') && latexExpression.endsWith('\\)')) {
+          latexExpression = latexExpression.substring(2, latexExpression.length - 2);
+        }
+        
+        // Также удаляем $...$ если есть
+        if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
+          latexExpression = latexExpression.substring(1, latexExpression.length - 1);
+        }
+        
         // Проверяем, является ли выражение формулой LaTeX
         const isMathExpression = 
-          expression.includes('\\frac') || 
-          expression.includes('\\sqrt') ||
-          expression.includes('\\cdot') ||
-          expression.includes('\\times') ||
-          expression.includes('^') ||
-          expression.includes('_');
+          latexExpression.includes('\\frac') || 
+          latexExpression.includes('\\sqrt') ||
+          latexExpression.includes('\\cdot') ||
+          latexExpression.includes('\\times') ||
+          latexExpression.includes('^') ||
+          latexExpression.includes('_') ||
+          latexExpression.includes('\\sin') ||
+          latexExpression.includes('\\cos') ||
+          latexExpression.includes('\\log') ||
+          latexExpression.includes('\\int');
         
         if (isMathExpression) {
           // Рендерим как формулу
-          katex.render(expression, containerRef.current, {
+          katex.render(latexExpression, containerRef.current, {
             displayMode,
-            throwOnError: true, // Временно true чтобы видеть ошибки
+            throwOnError: false, // Не выбрасывать ошибки
             strict: false,
             trust: true, // Разрешаем все команды
           });
@@ -43,13 +60,9 @@ const MathExpression: React.FC<MathExpressionProps> = ({
           containerRef.current.textContent = expression;
         }
       } catch (error: any) {
-        console.error('KaTeX rendering error:', error.message, 'Expression:', expression);
-        // Показываем исходный текст красным для отладки
-        containerRef.current.innerHTML = `
-          <span style="color: red; border: 1px solid red; padding: 2px;">
-            Ошибка: ${expression}
-          </span>
-        `;
+        console.error('KaTeX error:', error.message);
+        // Показываем исходный текст
+        containerRef.current.innerHTML = `<span>${expression}</span>`;
       }
     }
   }, [expression, displayMode]);
