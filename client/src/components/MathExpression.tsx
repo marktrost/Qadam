@@ -21,17 +21,28 @@ const MathExpression: React.FC<MathExpressionProps> = ({
         // Очищаем контейнер
         containerRef.current.innerHTML = '';
         
-        // Извлекаем LaTeX из обёртки \( ... \) если есть
-        let latexExpression = expression;
+        let latexExpression = expression.trim();
         
-        // Удаляем \( в начале и \) в конце
-        if (latexExpression.startsWith('\\(') && latexExpression.endsWith('\\)')) {
-          latexExpression = latexExpression.substring(2, latexExpression.length - 2);
+        // Извлекаем LaTeX из различных обёрток:
+        // 1. \( ... \)  (пропущенный слеш)
+        // 2. \\( ... \\) (правильный Markdown)
+        // 3. $ ... $ (inline math)
+        // 4. $$ ... $$ (display math)
+        
+        if ((latexExpression.startsWith('\\(') || latexExpression.startsWith('\\(\\(')) && 
+            (latexExpression.endsWith('\\)') || latexExpression.endsWith('\\\\)'))) {
+          // Удаляем \( в начале и \) в конце
+          latexExpression = latexExpression.replace(/^\\\(/, '').replace(/\\\)$/, '');
+          // Также удаляем лишние слеши
+          latexExpression = latexExpression.replace(/^\\\\\(/, '').replace(/\\\\\)$/, '');
         }
         
-        // Также удаляем $...$ если есть
         if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
           latexExpression = latexExpression.substring(1, latexExpression.length - 1);
+          if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
+            latexExpression = latexExpression.substring(1, latexExpression.length - 1);
+            displayMode = true;
+          }
         }
         
         // Проверяем, является ли выражение формулой LaTeX
@@ -44,30 +55,32 @@ const MathExpression: React.FC<MathExpressionProps> = ({
           latexExpression.includes('_') ||
           latexExpression.includes('\\sin') ||
           latexExpression.includes('\\cos') ||
+          latexExpression.includes('\\tan') ||
           latexExpression.includes('\\log') ||
-          latexExpression.includes('\\int');
+          latexExpression.includes('\\int') ||
+          latexExpression.includes('\\,');
         
         if (isMathExpression) {
           // Рендерим как формулу
           katex.render(latexExpression, containerRef.current, {
             displayMode,
-            throwOnError: false, // Не выбрасывать ошибки
+            throwOnError: false,
             strict: false,
-            trust: true, // Разрешаем все команды
+            trust: true,
           });
         } else {
           // Обычный текст
           containerRef.current.textContent = expression;
         }
       } catch (error: any) {
-        console.error('KaTeX error:', error.message);
-        // Показываем исходный текст
-        containerRef.current.innerHTML = `<span>${expression}</span>`;
+        console.error('KaTeX error for expression:', expression, error.message);
+        // Показываем исходный текст серым
+        containerRef.current.innerHTML = `<span style="color: #666; font-style: italic">${expression}</span>`;
       }
     }
   }, [expression, displayMode]);
 
-  return <span ref={containerRef} className={className} />;
+  return <span ref={containerRef} className={`inline-block ${className}`} />;
 };
 
 export default MathExpression;
