@@ -16,21 +16,34 @@ const MathExpression: React.FC<MathExpressionProps> = ({
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
-    if (containerRef.current) {
+    if (containerRef.current && expression) {
       try {
-        katex.render(expression, containerRef.current, {
-          displayMode,
-          throwOnError: false,
-          strict: false,
-        });
+        // Очищаем контейнер
+        containerRef.current.innerHTML = '';
+        
+        // Если выражение содержит только LaTeX команды, обрабатываем как формулу
+        if (expression.includes('\\frac') || expression.includes('\\sqrt') || 
+            expression.includes('\\cdot') || expression.includes('^') || 
+            expression.includes('_')) {
+          
+          katex.render(expression, containerRef.current, {
+            displayMode,
+            throwOnError: false,
+            strict: false,
+            trust: true, // Разрешаем команды типа \frac, \sqrt
+          });
+        } else {
+          // Если это обычный текст без формул
+          containerRef.current.textContent = expression;
+        }
       } catch (error) {
-        console.error('KaTeX error:', error);
-        containerRef.current.innerHTML = expression;
+        console.error('KaTeX rendering error:', error);
+        containerRef.current.innerHTML = `<span style="color: #666">${expression}</span>`;
       }
     }
   }, [expression, displayMode]);
 
-  return <div ref={containerRef} className={className} />;
+  return <div ref={containerRef} className={`${className} inline-block`} />;
 };
 
 export default MathExpression;
