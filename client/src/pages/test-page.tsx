@@ -36,8 +36,13 @@ import MathExpression from "@/components/MathExpression";
 // Функция для проверки, содержит ли текст LaTeX формулы
 const containsMath = (text: string): boolean => {
   if (!text) return false;
-  // Ищем: формулы \(...\), Unicode векторы, математические символы
-  return /\\\(|\\\\\(|\^|_|\{|\}|𝑎⃗|𝑏⃗|𝑐⃗|𝑑⃗|𝑒⃗|𝑓⃗|𝑔⃗|ℎ⃗|𝑖⃗|𝑗⃗|𝑘⃗|𝑙⃗|𝑚⃗|𝑛⃗|𝑜⃗|𝑝⃗|𝑞⃗|𝑟⃗|𝑠⃗|𝑡⃗|𝑢⃗|𝑣⃗|𝑤⃗|𝑥⃗|𝑦⃗|𝑧⃗|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int/.test(text);
+  
+  // Ищем любые математические символы
+  return /\\\(|\\\\\(|\^|_|\{|\}|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int|°|×|·|𝑎⃗|𝑏⃗|𝑐⃗/.test(text) ||
+         // Ищем векторы (символ + combining arrow)
+         /[a-z]⃗/.test(text) ||
+         // Ищем степени типа x^2
+         /[a-zA-Z0-9]+\^[0-9]/.test(text);
 };
 
 // Компонент для отображения текста со встроенными формулами
@@ -856,6 +861,11 @@ export default function TestPage() {
 											  Содержит LaTeX: {currentQuestion?.text?.includes('\\frac') ? 'Да' : 'Нет'}
 											</div>
                       <TextWithMath text={currentQuestion?.text || ""} />
+                      <div style={{ display: 'none' }}>
+                        Отладка: {currentQuestion?.text}
+                        <br />
+                        Содержит формулы: {containsMath(currentQuestion?.text || '') ? 'Да' : 'Нет'}
+                      </div>
                     </div>
                     
                     {/* Multiple choice hint */}
