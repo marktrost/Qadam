@@ -32,9 +32,10 @@ import type { Variant, Block } from "@shared/schema";
 import type { ActiveTest } from "@/lib/offline-db";
 import MathExpression from "@/components/MathExpression";
 
-// Функция для проверки, содержит ли текст LaTeX формулы
 const containsMath = (text: string): boolean => {
-  return /\\[a-zA-Z]|[\^_{}]|\\frac|\\sqrt|\\cdot|\\\(|\\\)/.test(text);
+  if (!text) return false;
+  // Ищем \( или \\( в тексте
+  return /\\\(|\\\\\(/.test(text);
 };
 
 // Компонент для отображения текста со встроенными формулами
