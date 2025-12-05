@@ -34,15 +34,21 @@ import MathExpression from "@/components/MathExpression";
 
 // Функция для проверки, содержит ли текст LaTeX формулы
 const containsMath = (text: string): boolean => {
-  return /\\[a-zA-Z]|[\^_{}]|\\frac|\\sqrt|\\cdot/.test(text);
+  return /\\[a-zA-Z]|[\^_{}]|\\frac|\\sqrt|\\cdot|\\\(|\\\)/.test(text);
 };
 
 // Компонент для отображения текста с формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Если текст содержит формулы LaTeX, используем MathExpression
+  // Проверяем, содержит ли текст формулы LaTeX
   if (containsMath(text)) {
+    // Если весь текст - это формула в \( ... \)
+    if (text.startsWith('\\(') && text.endsWith('\\)')) {
+      return <MathExpression expression={text} />;
+    }
+    
+    // Если есть формула внутри текста, пока просто используем MathExpression
     return <MathExpression expression={text} />;
   }
   
