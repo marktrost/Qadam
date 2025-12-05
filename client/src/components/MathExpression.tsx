@@ -21,29 +21,40 @@ const MathExpression: React.FC<MathExpressionProps> = ({
         // Очищаем контейнер
         containerRef.current.innerHTML = '';
         
-        // Если выражение содержит только LaTeX команды, обрабатываем как формулу
-        if (expression.includes('\\frac') || expression.includes('\\sqrt') || 
-            expression.includes('\\cdot') || expression.includes('^') || 
-            expression.includes('_')) {
-          
+        // Проверяем, является ли выражение формулой LaTeX
+        const isMathExpression = 
+          expression.includes('\\frac') || 
+          expression.includes('\\sqrt') ||
+          expression.includes('\\cdot') ||
+          expression.includes('\\times') ||
+          expression.includes('^') ||
+          expression.includes('_');
+        
+        if (isMathExpression) {
+          // Рендерим как формулу
           katex.render(expression, containerRef.current, {
             displayMode,
-            throwOnError: false,
+            throwOnError: true, // Временно true чтобы видеть ошибки
             strict: false,
-            trust: true, // Разрешаем команды типа \frac, \sqrt
+            trust: true, // Разрешаем все команды
           });
         } else {
-          // Если это обычный текст без формул
+          // Обычный текст
           containerRef.current.textContent = expression;
         }
-      } catch (error) {
-        console.error('KaTeX rendering error:', error);
-        containerRef.current.innerHTML = `<span style="color: #666">${expression}</span>`;
+      } catch (error: any) {
+        console.error('KaTeX rendering error:', error.message, 'Expression:', expression);
+        // Показываем исходный текст красным для отладки
+        containerRef.current.innerHTML = `
+          <span style="color: red; border: 1px solid red; padding: 2px;">
+            Ошибка: ${expression}
+          </span>
+        `;
       }
     }
   }, [expression, displayMode]);
 
-  return <div ref={containerRef} className={`${className} inline-block`} />;
+  return <span ref={containerRef} className={className} />;
 };
 
 export default MathExpression;
