@@ -760,6 +760,12 @@ export default function TestPage() {
                   {/* Текст вопроса */}
                   <div className="flex-1">
                     <div className="text-lg text-foreground leading-relaxed">
+											{/* Для отладки */}
+											<div style={{ display: 'none' }}>
+											  Текст вопроса: {currentQuestion?.text}
+											  <br />
+											  Содержит LaTeX: {currentQuestion?.text?.includes('\\frac') ? 'Да' : 'Нет'}
+											</div>
                       <TextWithMath text={currentQuestion?.text || ""} />
                     </div>
                     
