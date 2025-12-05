@@ -35,44 +35,91 @@ import MathExpression from "@/components/MathExpression";
 const containsMath = (text: string): boolean => {
   if (!text) return false;
   
-  // Проверяем на математические курсивные символы (Unicode диапазон)
-  const hasMathSymbols = /[\u{1D434}-\u{1D44D}\u{1D44E}-\u{1D467}]/u.test(text);
+  // Формулы в \(...\)
+  if (text.includes('\\(') && text.includes('\\)')) return true;
   
-  // Проверяем на векторы (символ с combining arrow U+20D7)
-  const hasVectors = /[a-zA-Z\u{1D434}-\u{1D44D}\u{1D44E}-\u{1D467}]⃗/u.test(text);
+  // Математические символы
+  if (/[a-zA-Z0-9]\^[0-9]|[a-zA-Z0-9]_[0-9]|°|×|·/.test(text)) return true;
   
-  // Проверяем на LaTeX команды
-  const hasLatex = /\\\(|\\\\\(|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int/.test(text);
+  // Векторы
+  if (/[a-zA-Z]⃗/.test(text)) return true;
   
-  // Проверяем на математические символы
-  const hasMathChars = /\^|_|\{|\}|°|×|·/.test(text);
-  
-  return hasMathSymbols || hasVectors || hasLatex || hasMathChars;
+  return false;
 };
 
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Если текст содержит математику - используем MathExpression
-  if (containsMath(text)) {
-    return <MathExpression expression={text} />;
+  // Разделяем текст на части
+  const parts: React.ReactNode[] = [];
+  let currentText = '';
+  let i = 0;
+  
+  while (i < text.length) {
+    // Ищем начало формулы: \(
+    if (text[i] === '\\' && i + 1 < text.length && text[i + 1] === '(') {
+      
+      // Сохраняем предыдущий текст
+      if (currentText) {
+        parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+        currentText = '';
+      }
+      
+      // Ищем конец формулы: \)
+      let formula = '';
+      let j = i;
+      
+      formula = '\\(';
+      j = i + 2;
+      
+      while (j < text.length && !(text[j] === '\\' && j + 1 < text.length && text[j + 1] === ')')) {
+        formula += text[j];
+        j++;
+      }
+      
+      if (j < text.length && text[j] === '\\' && text[j + 1] === ')') {
+        formula += '\\)';
+        j += 2;
+      }
+      
+      i = j;
+      parts.push(<MathExpression key={`math-${parts.length}`} expression={formula} />);
+    } 
+    // Ищем простые математические выражения без \(...\)
+    else if (/[a-zA-Z0-9]\^[0-9]|[a-zA-Z0-9]_[0-9]|°|×|·|𝑎⃗|𝑏⃗|𝑐⃗/.test(text.substring(i, Math.min(i + 3, text.length)))) {
+      // Нашли математику в тексте
+      if (currentText) {
+        parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+        currentText = '';
+      }
+      
+      // Берем математическое выражение (3-4 символа)
+      let mathExpr = '';
+      const maxMathLength = 20;
+      let mathEnd = i;
+      
+      while (mathEnd < text.length && mathEnd - i < maxMathLength && 
+             /[a-zA-Z0-9\^_\+\-\*\/=<>\(\)\{\}\.,;:!°×·]/.test(text[mathEnd])) {
+        mathExpr += text[mathEnd];
+        mathEnd++;
+      }
+      
+      parts.push(<MathExpression key={`math-${parts.length}`} expression={mathExpr} />);
+      i = mathEnd;
+    }
+    else {
+      currentText += text[i];
+      i++;
+    }
   }
   
-  return <span>{text}</span>;
+  // Добавляем оставшийся текст
+  if (currentText) {
+    parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+  }
+  
+  return <>{parts}</>;
 };
-
-interface TestSubject {
-  subject: {
-    id: string;
-    name: string;
-  };
-  questions: TestQuestion[];
-}
-
-interface TestData {
-  variant: Variant & { block: Block };
-  testData: TestSubject[];
-}
 
 export default function TestPage() {
   const [match, params] = useRoute("/test/:variantId");
