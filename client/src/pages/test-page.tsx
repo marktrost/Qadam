@@ -30,6 +30,25 @@ import MobileTestNavigation from "@/components/mobile-test-navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Variant, Block } from "@shared/schema";
 import type { ActiveTest } from "@/lib/offline-db";
+import MathExpression from "@/components/MathExpression";
+
+// Функция для проверки, содержит ли текст LaTeX формулы
+const containsMath = (text: string): boolean => {
+  return /\\[a-zA-Z]|[\^_{}]|\\frac|\\sqrt|\\cdot/.test(text);
+};
+
+// Компонент для отображения текста с формулами
+const TextWithMath = ({ text }: { text: string }) => {
+  if (!text) return null;
+  
+  // Если текст содержит формулы LaTeX, используем MathExpression
+  if (containsMath(text)) {
+    return <MathExpression expression={text} />;
+  }
+  
+  // Иначе обычный текст
+  return <span>{text}</span>;
+};
 
 interface TestQuestion {
   id: string;
@@ -741,7 +760,7 @@ export default function TestPage() {
                   {/* Текст вопроса */}
                   <div className="flex-1">
                     <div className="text-lg text-foreground leading-relaxed">
-                      {currentQuestion?.text}
+                      <TextWithMath text={currentQuestion?.text || ""} />
                     </div>
                     
                     {/* Multiple choice hint */}
@@ -824,7 +843,7 @@ export default function TestPage() {
 				          <span className="font-medium mr-3">
 				            {String.fromCharCode(65 + index)}.
 				          </span>
-				          {answer.text}
+				          <TextWithMath text={answer.text} />
 				        </div>
 				        
 				        {/* Review mode indicators */}
