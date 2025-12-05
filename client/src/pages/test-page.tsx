@@ -33,127 +33,46 @@ import type { ActiveTest } from "@/lib/offline-db";
 import MathExpression from "@/components/MathExpression";
 
 
-// Функция для проверки, содержит ли текст LaTeX формулы
 const containsMath = (text: string): boolean => {
   if (!text) return false;
   
-  // Ищем любые математические символы
-  return /\\\(|\\\\\(|\^|_|\{|\}|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int|°|×|·|𝑎⃗|𝑏⃗|𝑐⃗/.test(text) ||
-         // Ищем векторы (символ + combining arrow)
-         /[a-z]⃗/.test(text) ||
-         // Ищем степени типа x^2
-         /[a-zA-Z0-9]+\^[0-9]/.test(text);
+  // Ищем любые признаки математики:
+  
+  // 1. LaTeX команды
+  if (/\\\(|\\\\\(|\\frac|\\sqrt|\\cdot|\\sin|\\cos|\\tan|\\log|\\int/.test(text)) {
+    return true;
+  }
+  
+  // 2. Математические символы
+  if (/\^|_|\{|\}|°|×|·/.test(text)) {
+    return true;
+  }
+  
+  // 3. Векторы (символ с combining arrow)
+  if (/[𝑎-𝑧]⃗/.test(text)) {
+    console.log('Найден вектор в тексте:', text);
+    return true;
+  }
+  
+  // 4. Степени вида x^2
+  if (/[a-zA-Z0-9\)]\^[0-9]/.test(text)) {
+    return true;
+  }
+  
+  return false;
 };
 
 // Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Разделяем текст на части: обычный текст и формулы
-  const parts: React.ReactNode[] = [];
-  let currentText = '';
-  let i = 0;
-  
-  while (i < text.length) {
-    // === ПРОВЕРКА ДЛЯ ВЕКТОРОВ ===
-    let foundVector = false;
-    
-    // Проверяем Unicode векторы (2 или 3 символа)
-    if (i < text.length - 1) {
-      const twoChars = text.substring(i, i + 2);
-      const threeChars = i < text.length - 2 ? text.substring(i, i + 3) : '';
-      
-      const vectors = [
-        '𝑎⃗', '𝑏⃗', '𝑐⃗', '𝑑⃗', '𝑒⃗', '𝑓⃗', '𝑔⃗', 'ℎ⃗', 
-        '𝑖⃗', '𝑗⃗', '𝑘⃗', '𝑙⃗', '𝑚⃗', '𝑛⃗', '𝑜⃗', '𝑝⃗',
-        '𝑞⃗', '𝑟⃗', '𝑠⃗', '𝑡⃗', '𝑢⃗', '𝑣⃗', '𝑤⃗', '𝑥⃗', '𝑦⃗', '𝑧⃗',
-        '𝑏⃗⃗'  // двойная стрелка
-      ];
-      
-      if (vectors.includes(twoChars) || vectors.includes(threeChars)) {
-        // Сохраняем предыдущий текст
-        if (currentText) {
-          parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
-          currentText = '';
-        }
-        
-        // Обрабатываем вектор
-        let vector = vectors.includes(threeChars) ? threeChars : twoChars;
-        parts.push(<MathExpression key={`math-${parts.length}`} expression={vector} />);
-        
-        // Продвигаем индекс
-        i += vector.length;
-        foundVector = true;
-      }
-    }
-    
-    if (foundVector) continue;
-    
-    // === ПРОВЕРКА ДЛЯ LaTeX ФОРМУЛ ===
-    // Ищем начало формулы: \( или \\(
-    if ((text[i] === '\\' && i + 1 < text.length && text[i + 1] === '(') ||
-        (text[i] === '\\' && i + 2 < text.length && text[i + 1] === '\\' && text[i + 2] === '(')) {
-      
-      // Сохраняем предыдущий текст
-      if (currentText) {
-        parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
-        currentText = '';
-      }
-      
-      // Ищем конец формулы: \) или \\)
-      let formula = '';
-      let j = i;
-      let bracketCount = 0;
-      
-      if (text[i] === '\\' && text[i + 1] === '\\' && text[i + 2] === '(') {
-        // Формат \\(
-        formula = '\\(';
-        j = i + 3;
-        bracketCount = 1;
-      } else {
-        // Формат \(
-        formula = '\\(';
-        j = i + 2;
-        bracketCount = 1;
-      }
-      
-      while (j < text.length && bracketCount > 0) {
-        formula += text[j];
-        
-        if (text[j] === '\\' && j + 1 < text.length && text[j + 1] === ')') {
-          bracketCount--;
-          formula += ')';
-          j++;
-        } else if (text[j] === '\\' && j + 2 < text.length && text[j + 1] === '\\' && text[j + 2] === ')') {
-          bracketCount--;
-          formula += '\\)';
-          j += 2;
-        } else if (text[j] === '(') {
-          bracketCount++;
-        }
-        j++;
-      }
-      
-      i = j;
-      parts.push(<MathExpression key={`math-${parts.length}`} expression={formula} />);
-    } else {
-      // Обычный текст
-      currentText += text[i];
-      i++;
-    }
+  // Если текст содержит математику - используем MathExpression для всего текста
+  if (containsMath(text)) {
+    return <MathExpression expression={text} />;
   }
   
-  // Добавляем оставшийся текст
-  if (currentText) {
-    parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
-  }
-  
-  // Если ничего не нашли, возвращаем обычный текст
-  if (parts.length === 0 && text) {
-    return <span>{text}</span>;
-  }
-  
-  return <>{parts}</>;
+  // Иначе обычный текст
+  return <span>{text}</span>;
 };
 
 interface TestSubject {
