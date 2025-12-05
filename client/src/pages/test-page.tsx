@@ -1044,12 +1044,7 @@ export default function TestPage() {
 
         {/* external pagination removed (navigation shown inside question card) */}
 
-        {/* Fixed finish button bottom-right - только в режиме тестирования */}
-        {!isReviewMode && (
-          <div>
-            <Button onClick={handleSubmitTest} data-testid="button-finish-bottom" className="fixed bottom-6 right-6 z-50 bg-accent hover:bg-accent/90">Завершить тест</Button>
-          </div>
-        )}
+
 
         {/* Tools Modals */}
         <TestToolsModal
