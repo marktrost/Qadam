@@ -30,8 +30,6 @@ import MobileTestNavigation from "@/components/mobile-test-navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Variant, Block } from "@shared/schema";
 import type { ActiveTest } from "@/lib/offline-db";
-// В начало файла, после других импортов, добавьте:
-import MathJaxText from "@/components/MathJaxText";
 
 interface TestQuestion {
   id: string;
@@ -743,7 +741,7 @@ export default function TestPage() {
                   {/* Текст вопроса */}
                   <div className="flex-1">
                     <div className="text-lg text-foreground leading-relaxed">
-                      <MathJaxText text={currentQuestion?.text || ''} />
+                      {currentQuestion?.text}
                     </div>
                     
                     {/* Multiple choice hint */}
@@ -823,12 +821,9 @@ export default function TestPage() {
 				        
 				        {/* Answer text */}
 				        <div className="flex-1 text-left">
-                          <div className="flex-1 text-left">
-                            <span className="font-medium mr-3">
-                              {String.fromCharCode(65 + index)}.
-                            </span>
-                            <MathJaxText text={answer.text} inline />
-                          </div>
+				          <span className="font-medium mr-3">
+				            {String.fromCharCode(65 + index)}.
+				          </span>
 				          {answer.text}
 				        </div>
 				        
