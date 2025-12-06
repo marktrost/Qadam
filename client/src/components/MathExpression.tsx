@@ -23,16 +23,18 @@ const MathExpression: React.FC<MathExpressionProps> = ({
         
         let latexExpression = expression.trim();
         
-        console.log('MathExpression получил:', latexExpression);
+        console.log('🔬 MathExpression вход:', latexExpression);
         
-        // Удаляем обертки \( \) или \\\( \\\)
+        // Удаляем обертки \(...\) или \\\(...\\\)
         if (latexExpression.startsWith('\\(') && latexExpression.endsWith('\\)')) {
           latexExpression = latexExpression.substring(2, latexExpression.length - 2);
         } else if (latexExpression.startsWith('\\\\(') && latexExpression.endsWith('\\\\)')) {
           latexExpression = latexExpression.substring(3, latexExpression.length - 3);
         }
         
-        // Если после очистки пусто, показываем оригинал
+        console.log('🔬 MathExpression очищенный:', latexExpression);
+        
+        // Если пусто после очистки
         if (!latexExpression) {
           containerRef.current.textContent = expression;
           return;
@@ -48,11 +50,34 @@ const MathExpression: React.FC<MathExpressionProps> = ({
             "\\vec": "\\overrightarrow{#1}",
             "\\degree": "^{\\circ}",
             "\\celsius": "^{\\circ}\\mathrm{C}",
+            "\\cdot": "\\cdot",
+            "\\times": "\\times",
+            "\\div": "\\div",
+            "\\sqrt": "\\sqrt{#1}",
+            "\\frac": "\\frac{#1}{#2}",
+            "\\int": "\\int",
+            "\\sum": "\\sum",
+            "\\lim": "\\lim",
+            "\\to": "\\to",
+            "\\infty": "\\infty",
+            "\\alpha": "\\alpha",
+            "\\beta": "\\beta",
+            "\\gamma": "\\gamma",
+            "\\delta": "\\delta",
+            "\\sin": "\\sin",
+            "\\cos": "\\cos",
+            "\\tan": "\\tan",
+            "\\log": "\\log",
+            "\\ln": "\\ln",
           }
         });
+        
+        console.log('✅ MathExpression успешно отрендерен');
       } catch (error: any) {
-        console.error('KaTeX error:', error.message, 'for:', expression);
-        containerRef.current.textContent = expression;
+        console.error('❌ KaTeX error:', error.message, 'for:', expression);
+        // Показываем оригинал с подсветкой
+        containerRef.current.innerHTML = 
+          `<span style="color: #666; font-style: italic; border: 1px solid #ddd; padding: 2px;">${expression}</span>`;
       }
     }
   }, [expression, displayMode]);
