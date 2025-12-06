@@ -33,6 +33,94 @@ import type { ActiveTest } from "@/lib/offline-db";
 import MathExpression from "@/components/MathExpression";
 
 
+const containsMath = (text: string): boolean => {
+  if (!text) return false;
+  // Ищем \( или \\( в тексте
+  return /\\\(|\\\\\(/.test(text);
+};
+
+// Компонент для отображения текста со встроенными формулами
+const TextWithMath = ({ text }: { text: string }) => {
+  if (!text) return null;
+  
+  // Разделяем текст на части: обычный текст и формулы
+  const parts: React.ReactNode[] = [];
+  let currentText = '';
+  let i = 0;
+  
+  while (i < text.length) {
+    // Ищем начало формулы: \( или \\(
+    if ((text[i] === '\\' && i + 1 < text.length && text[i + 1] === '(') ||
+        (text[i] === '\\' && i + 2 < text.length && text[i + 1] === '\\' && text[i + 2] === '(')) {
+      
+      // Сохраняем предыдущий текст
+      if (currentText) {
+        parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+        currentText = '';
+      }
+      
+      // Ищем конец формулы: \) или \\)
+      let formula = '';
+      let j = i;
+      let bracketCount = 0;
+      
+      if (text[i] === '\\' && text[i + 1] === '\\' && text[i + 2] === '(') {
+        // Формат \\(
+        formula = '\\(';
+        j = i + 3;
+        bracketCount = 1;
+      } else {
+        // Формат \(
+        formula = '\\(';
+        j = i + 2;
+        bracketCount = 1;
+      }
+      
+      while (j < text.length && bracketCount > 0) {
+        formula += text[j];
+        
+        if (text[j] === '\\' && j + 1 < text.length && text[j + 1] === ')') {
+          bracketCount--;
+          formula += ')';
+          j++;
+        } else if (text[j] === '\\' && j + 2 < text.length && text[j + 1] === '\\' && text[j + 2] === ')') {
+          bracketCount--;
+          formula += '\\)';
+          j += 2;
+        } else if (text[j] === '(') {
+          bracketCount++;
+        }
+        j++;
+      }
+      
+      i = j;
+      parts.push(<MathExpression key={`math-${parts.length}`} expression={formula} />);
+    } else {
+      currentText += text[i];
+      i++;
+    }
+  }
+  
+  // Добавляем оставшийся текст
+  if (currentText) {
+    parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+  }
+  
+  return <>{parts}</>;
+};
+
+interface TestSubject {
+  subject: {
+    id: string;
+    name: string;
+  };
+  questions: TestQuestion[];
+}
+
+interface TestData {
+  variant: Variant & { block: Block };
+  testData: TestSubject[];
+}
 
 export default function TestPage() {
   const [match, params] = useRoute("/test/:variantId");
