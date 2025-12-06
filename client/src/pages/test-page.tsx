@@ -34,75 +34,50 @@ import MathExpression from "@/components/MathExpression";
 
 const containsMath = (text: string): boolean => {
   if (!text) return false;
-  // Ищем \( или \\( в тексте
-  return /\\\(|\\\\\(/.test(text);
+  
+  // Проверяем различные форматы математических выражений
+  return /\\\(.*?\\\)|\\\\\(.*?\\\\\)|\$.*?\$|\$\$.*?\$\$/.test(text);
 };
 
 // Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Разделяем текст на части: обычный текст и формулы
+  // Упрощенная версия парсинга - ищем формулы в формате \(...\) и \\(...\\)
   const parts: React.ReactNode[] = [];
-  let currentText = '';
-  let i = 0;
+  const regex = /(\\\(.*?\\\)|\\\\\(.*?\\\\\))/g;
+  const matches = text.match(regex);
   
-  while (i < text.length) {
-    // Ищем начало формулы: \( или \\(
-    if ((text[i] === '\\' && i + 1 < text.length && text[i + 1] === '(') ||
-        (text[i] === '\\' && i + 2 < text.length && text[i + 1] === '\\' && text[i + 2] === '(')) {
-      
-      // Сохраняем предыдущий текст
-      if (currentText) {
-        parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
-        currentText = '';
-      }
-      
-      // Ищем конец формулы: \) или \\)
-      let formula = '';
-      let j = i;
-      let bracketCount = 0;
-      
-      if (text[i] === '\\' && text[i + 1] === '\\' && text[i + 2] === '(') {
-        // Формат \\(
-        formula = '\\(';
-        j = i + 3;
-        bracketCount = 1;
-      } else {
-        // Формат \(
-        formula = '\\(';
-        j = i + 2;
-        bracketCount = 1;
-      }
-      
-      while (j < text.length && bracketCount > 0) {
-        formula += text[j];
-        
-        if (text[j] === '\\' && j + 1 < text.length && text[j + 1] === ')') {
-          bracketCount--;
-          formula += ')';
-          j++;
-        } else if (text[j] === '\\' && j + 2 < text.length && text[j + 1] === '\\' && text[j + 2] === ')') {
-          bracketCount--;
-          formula += '\\)';
-          j += 2;
-        } else if (text[j] === '(') {
-          bracketCount++;
-        }
-        j++;
-      }
-      
-      i = j;
-      parts.push(<MathExpression key={`math-${parts.length}`} expression={formula} />);
-    } else {
-      currentText += text[i];
-      i++;
-    }
+  if (!matches) {
+    // Если нет формул, возвращаем просто текст
+    return <span>{text}</span>;
   }
   
+  let lastIndex = 0;
+  
+  matches.forEach((match, index) => {
+    const matchIndex = text.indexOf(match, lastIndex);
+    
+    // Добавляем текст перед формулой
+    if (matchIndex > lastIndex) {
+      parts.push(<span key={`text-${index}`}>{text.substring(lastIndex, matchIndex)}</span>);
+    }
+    
+    // Добавляем формулу
+    parts.push(
+      <MathExpression 
+        key={`math-${index}`} 
+        expression={match} 
+        displayMode={false}
+      />
+    );
+    
+    lastIndex = matchIndex + match.length;
+  });
+  
   // Добавляем оставшийся текст
-  if (currentText) {
-    parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+  if (lastIndex < text.length) {
+    parts.push(<span key={`text-end`}>{text.substring(lastIndex)}</span>);
   }
   
   return <>{parts}</>;
