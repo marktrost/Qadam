@@ -362,3 +362,76 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;  /* Safari and Chrome */
 }
+/* Добавьте в конец файла, после всех существующих стилей */
+
+/* === СТИЛИ ДЛЯ МАТЕМАТИЧЕСКИХ ВЫРАЖЕНИЙ === */
+.math-expression .katex {
+  font-size: 1.1em;
+}
+
+/* Сохранение пробелов в ответах */
+.answer-text,
+.whitespace-pre-wrap {
+  white-space: pre-wrap !important;
+  word-break: keep-all !important;
+}
+
+/* Стили для векторов и степеней в обычном тексте */
+.math-symbol {
+  font-family: "KaTeX_Math", "Times New Roman", serif;
+}
+
+.vector-arrow {
+  position: relative;
+  display: inline-block;
+  padding-right: 0.2em;
+}
+
+.vector-arrow::after {
+  content: "→";
+  position: absolute;
+  top: -0.1em;
+  right: 0;
+  font-size: 0.9em;
+}
+
+/* Стили для superscript (верхний индекс) */
+sup {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+}
+
+/* === СТИЛИ ДЛЯ ОТЛАДКИ === */
+.debug-math {
+  border: 1px dashed #ccc;
+  background: #f9f9f9;
+  padding: 2px;
+  margin: 0 2px;
+}
+
+/* === ОПТИМИЗАЦИИ ДЛЯ МОБИЛЬНЫХ УСТРОЙСТВ === */
+@media (max-width: 768px) {
+  .math-expression .katex {
+    font-size: 1em;
+  }
+  
+  .answer-text {
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+}
+
+/* === ЗАЩИТА МАТЕМАТИЧЕСКИХ ФОРМУЛ === */
+.math-expression.screenshot-protected {
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+/* === ПЕЧАТЬ МАТЕМАТИЧЕСКИХ ФОРМУЛ === */
+@media print {
+  .math-expression {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
