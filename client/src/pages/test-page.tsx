@@ -27,6 +27,7 @@ import MobileTestNavigation from "@/components/mobile-test-navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Variant, Block } from "@shared/schema";
 import type { ActiveTest } from "@/lib/offline-db";
+import React from 'react';
 import MathExpression from "@/components/MathExpression";
 
 const containsMath = (text: string): boolean => {
