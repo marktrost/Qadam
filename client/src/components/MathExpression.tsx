@@ -18,8 +18,7 @@ const MathExpression: React.FC<MathExpressionProps> = ({
   React.useEffect(() => {
     if (containerRef.current && expression) {
       try {
-        console.log('MathExpression получает:', expression);
-        
+        // Очищаем контейнер
         containerRef.current.innerHTML = '';
         
         let latexExpression = expression.trim();
@@ -27,18 +26,24 @@ const MathExpression: React.FC<MathExpressionProps> = ({
         // Извлекаем LaTeX из различных обёрток:
         // 1. \( ... \)  (пропущенный слеш)
         // 2. \\( ... \\) (правильный Markdown)
+        // 3. $ ... $ (inline math)
+        // 4. $$ ... $$ (display math)
         
-        // Для формата \(...\)
-        if (latexExpression.startsWith('\\(') && latexExpression.endsWith('\\)')) {
-          latexExpression = latexExpression.substring(2, latexExpression.length - 2);
+        if ((latexExpression.startsWith('\\(') || latexExpression.startsWith('\\(\\(')) && 
+            (latexExpression.endsWith('\\)') || latexExpression.endsWith('\\\\)'))) {
+          // Удаляем \( в начале и \) в конце
+          latexExpression = latexExpression.replace(/^\\\(/, '').replace(/\\\)$/, '');
+          // Также удаляем лишние слеши
+          latexExpression = latexExpression.replace(/^\\\\\(/, '').replace(/\\\\\)$/, '');
         }
         
-        // Для формата \\(...\\)
-        if (latexExpression.startsWith('\\\\(') && latexExpression.endsWith('\\\\)')) {
-          latexExpression = latexExpression.substring(3, latexExpression.length - 3);
+        if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
+          latexExpression = latexExpression.substring(1, latexExpression.length - 1);
+          if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
+            latexExpression = latexExpression.substring(1, latexExpression.length - 1);
+            displayMode = true;
+          }
         }
-        
-        console.log('После очистки:', latexExpression);
         
         // Проверяем, является ли выражение формулой LaTeX
         const isMathExpression = 
@@ -56,7 +61,6 @@ const MathExpression: React.FC<MathExpressionProps> = ({
           latexExpression.includes('\\,');
         
         if (isMathExpression) {
-          console.log('Рендерим как формулу:', latexExpression);
           // Рендерим как формулу
           katex.render(latexExpression, containerRef.current, {
             displayMode,
@@ -65,14 +69,13 @@ const MathExpression: React.FC<MathExpressionProps> = ({
             trust: true,
           });
         } else {
-          console.log('Обычный текст:', expression);
           // Обычный текст
           containerRef.current.textContent = expression;
         }
       } catch (error: any) {
-        console.error('KaTeX error:', error.message, 'Expression:', expression);
-        // Показываем исходный текст красным для отладки
-        containerRef.current.innerHTML = `<span style="color: red">${expression}</span>`;
+        console.error('KaTeX error for expression:', expression, error.message);
+        // Показываем исходный текст серым
+        containerRef.current.innerHTML = `<span style="color: #666; font-style: italic">${expression}</span>`;
       }
     }
   }, [expression, displayMode]);
