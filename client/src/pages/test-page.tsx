@@ -846,7 +846,8 @@ export default function TestPage() {
                         )}
                         
                         {/* Answer text */}
-                        <div className="flex-1 text-left">
+                        {/* Answer text - СОХРАНЯЕМ ПРОБЕЛЫ */}
+                        <div className="flex-1 text-left whitespace-pre-wrap break-normal">
                           <span className="font-medium mr-3">
                             {String.fromCharCode(65 + index)}.
                           </span>
