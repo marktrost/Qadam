@@ -23,83 +23,35 @@ const MathExpression: React.FC<MathExpressionProps> = ({
         
         let latexExpression = expression.trim();
         
-        // Удаляем обертки \( и \)
+        console.log('MathExpression получил:', latexExpression);
+        
+        // Удаляем обертки \( \) или \\\( \\\)
         if (latexExpression.startsWith('\\(') && latexExpression.endsWith('\\)')) {
           latexExpression = latexExpression.substring(2, latexExpression.length - 2);
+        } else if (latexExpression.startsWith('\\\\(') && latexExpression.endsWith('\\\\)')) {
+          latexExpression = latexExpression.substring(3, latexExpression.length - 3);
         }
         
-        // Расширенные макросы для лучшей поддержки
-        const macros: Record<string, string> = {
-          "\\vec": "\\overrightarrow{#1}",
-          "\\degree": "^{\\circ}",
-          "\\celsius": "^{\\circ}\\mathrm{C}",
-          "\\permille": "\\unicode{0x2030}",
-          "\\cdot": "\\cdot",
-          "\\times": "\\times",
-          "\\div": "\\div",
-          "\\pm": "\\pm",
-          "\\mp": "\\mp",
-          "\\approx": "\\approx",
-          "\\sim": "\\sim",
-          "\\cong": "\\cong",
-          "\\equiv": "\\equiv",
-          "\\neq": "\\neq",
-          "\\leq": "\\leq",
-          "\\geq": "\\geq",
-          "\\subset": "\\subset",
-          "\\supset": "\\supset",
-          "\\subseteq": "\\subseteq",
-          "\\supseteq": "\\supseteq",
-          "\\in": "\\in",
-          "\\notin": "\\notin",
-          "\\forall": "\\forall",
-          "\\exists": "\\exists",
-          "\\nexists": "\\nexists",
-          "\\emptyset": "\\emptyset",
-          "\\varnothing": "\\varnothing",
-          "\\mathbb{R}": "\\mathbb{R}",
-          "\\mathbb{N}": "\\mathbb{N}",
-          "\\mathbb{Z}": "\\mathbb{Z}",
-          "\\mathbb{Q}": "\\mathbb{Q}",
-          "\\mathbb{C}": "\\mathbb{C}",
-          "\\sin": "\\sin",
-          "\\cos": "\\cos",
-          "\\tan": "\\tan",
-          "\\cot": "\\cot",
-          "\\sec": "\\sec",
-          "\\csc": "\\csc",
-          "\\arcsin": "\\arcsin",
-          "\\arccos": "\\arccos",
-          "\\arctan": "\\arctan",
-          "\\sinh": "\\sinh",
-          "\\cosh": "\\cosh",
-          "\\tanh": "\\tanh",
-          "\\log": "\\log",
-          "\\ln": "\\ln",
-          "\\lg": "\\lg",
-          "\\exp": "\\exp",
-          "\\lim": "\\lim",
-          "\\sup": "\\sup",
-          "\\inf": "\\inf",
-          "\\max": "\\max",
-          "\\min": "\\min",
-          "\\det": "\\det",
-          "\\gcd": "\\gcd",
-          "\\lcm": "\\operatorname{lcm}",
-          "\\Pr": "\\Pr",
-          "\\operatorname{sgn}": "\\operatorname{sgn}",
-        };
+        // Если после очистки пусто, показываем оригинал
+        if (!latexExpression) {
+          containerRef.current.textContent = expression;
+          return;
+        }
         
+        // Всегда пытаемся рендерить
         katex.render(latexExpression, containerRef.current, {
           displayMode,
           throwOnError: false,
           strict: false,
           trust: true,
-          macros,
+          macros: {
+            "\\vec": "\\overrightarrow{#1}",
+            "\\degree": "^{\\circ}",
+            "\\celsius": "^{\\circ}\\mathrm{C}",
+          }
         });
       } catch (error: any) {
-        console.error('KaTeX error for expression:', expression, error.message);
-        // Показываем исходный текст
+        console.error('KaTeX error:', error.message, 'for:', expression);
         containerRef.current.textContent = expression;
       }
     }
