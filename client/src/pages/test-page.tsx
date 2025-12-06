@@ -2,13 +2,11 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { useRenderDebug } from "@/utils/render-debug";
 // Header intentionally not rendered on test page to avoid navigation during a running test
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +18,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import TestToolsModal from "@/components/test-tools-modal";
-// Proctoring removed
 import { queryClient } from "@/lib/queryClient";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -34,9 +31,8 @@ import MathExpression from "@/components/MathExpression";
 
 const containsMath = (text: string): boolean => {
   if (!text) return false;
-  
-  // Проверяем различные форматы математических выражений
-  return /\\\(.*?\\\)|\\\\\(.*?\\\\\)|\$.*?\$|\$\$.*?\$\$/.test(text);
+  // Ищем \( или \\( в тексте
+  return /\\\(|\\\\\(/.test(text);
 };
 
 // Компонент для отображения текста со встроенными формулами
@@ -83,6 +79,18 @@ const TextWithMath = ({ text }: { text: string }) => {
   return <>{parts}</>;
 };
 
+interface TestQuestion {
+  id: string;
+  text: string;
+  imageUrl?: string;
+  solutionImageUrl?: string;
+  answers: {
+    id: string;
+    text: string;
+    isCorrect: boolean;
+  }[];
+}
+
 interface TestSubject {
   subject: {
     id: string;
@@ -120,8 +128,6 @@ export default function TestPage() {
     };
   }, []);
 
-  // Упрощенная проверка режима просмотра
-
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, string | string[]>>(
     isReviewMode ? (reviewUserAnswers || {}) : {}
@@ -151,46 +157,6 @@ export default function TestPage() {
   const handleOpenPeriodicTable = useCallback(() => {
     setShowPeriodicTable(true);
   }, []);
-
-  // Small helper: numeric pagination (simple)
-  function Pagination({ total, current, onChange }: { total: number; current: number; onChange: (i: number) => void }) {
-    const windowSize = 7; // number of page buttons to show in pager window
-    if (total <= 1) return null;
-
-    const half = Math.floor(windowSize / 2);
-    let start = Math.max(0, current - half);
-    let end = Math.min(total, start + windowSize);
-    if (end - start < windowSize) {
-      start = Math.max(0, end - windowSize);
-    }
-
-    const pages: number[] = [];
-    for (let i = start; i < end; i++) pages.push(i);
-
-    const showLeftEllipsis = start > 1;
-    const showRightEllipsis = end < total - 1;
-
-    return (
-      <div className="flex items-center gap-2">
-        {/* first page if not in window */}
-        {start > 0 && (
-          <button onClick={() => onChange(0)} className={`px-2 py-1 rounded ${0 === current ? 'bg-accent text-white' : 'bg-transparent border'}`}>1</button>
-        )}
-        {showLeftEllipsis && <span className="px-2">...</span>}
-        {pages.map(p => (
-          <button
-            key={p}
-            onClick={() => onChange(p)}
-            className={`px-2 py-1 rounded ${p === current ? 'bg-accent text-white' : 'bg-transparent border'}`}
-          >{p+1}</button>
-        ))}
-        {showRightEllipsis && <span className="px-2">...</span>}
-        {end < total && (
-          <button onClick={() => onChange(total - 1)} className={`px-2 py-1 rounded ${total - 1 === current ? 'bg-accent text-white' : 'bg-transparent border'}`}>{total}</button>
-        )}
-      </div>
-    );
-  }
 
   // Clear previous test results when starting new test
   useEffect(() => {
@@ -232,14 +198,10 @@ export default function TestPage() {
     };
   }, [isReviewMode]);
 
-  // pagination window size intentionally unified across devices
-
-  // Proctoring removed
-
   const { data: testData, isLoading } = useQuery<TestData>({
     queryKey: [isPublicTest ? "/api/public/variants" : "/api/variants", variantId, "test"],
     enabled: !!variantId && !isReviewMode,
-    initialData: undefined, // НЕ используем initialData в режиме просмотра
+    initialData: undefined,
   });
 
   // В режиме просмотра используем ТОЛЬКО данные из reviewTestData (API)
@@ -255,12 +217,8 @@ export default function TestPage() {
     );
   }, [finalTestData]);
 
-  // Proctoring removed
-
   const submitTestMutation = useMutation({
     mutationFn: async (answers: Record<string, string | string[]>) => {
-  // Proctoring removed: no action needed here.
-
       try {
         // Try online submission first
         if (syncStatus.isOnline) {
@@ -325,44 +283,44 @@ export default function TestPage() {
       localStorage.removeItem(`test_${variantId}_answers`);
       
       // For guest results, show results directly, for authenticated users navigate to results page
-			if (result.isGuestResult) {
-			  setTimeout(() => {
-			    // Для гостей нужно создать testData с флагами isCorrect
-			    const guestTestDataWithCorrectFlags = {
-			      variant: finalTestData.variant,
-			      testData: finalTestData.testData.map(subject => ({
-			        subject: subject.subject,
-			        questions: subject.questions.map(question => ({
-			          ...question,
-			          answers: question.answers.map(answer => ({
-			            ...answer,
-			            isCorrect: false // Или нужно получить реальные данные?
-			          }))
-			        }))
-			      }))
-			    };
-			    
-			    setLocation("/", { 
-			      state: { 
-			        guestResult: result,
-			        testData: guestTestDataWithCorrectFlags, 
-			        userAnswers,
-			        showResults: true
-			      } 
-			    });
-			  }, 0);
-			} else {
-			  // Для авторизованных используем данные из response
-			  const responseData = result as any;
-			  const reviewTestData = responseData.testData || finalTestData;
-			  
-			  sessionStorage.setItem('testResultData', JSON.stringify({ 
-			    result: responseData.result || result, 
-			    testData: reviewTestData, 
-			    userAnswers: responseData.userAnswers || userAnswers 
-			  }));
-			  setLocation("/results");
-			}
+      if (result.isGuestResult) {
+        setTimeout(() => {
+          // Для гостей нужно создать testData с флагами isCorrect
+          const guestTestDataWithCorrectFlags = {
+            variant: finalTestData.variant,
+            testData: finalTestData.testData.map(subject => ({
+              subject: subject.subject,
+              questions: subject.questions.map(question => ({
+                ...question,
+                answers: question.answers.map(answer => ({
+                  ...answer,
+                  isCorrect: false // Или нужно получить реальные данные?
+                }))
+              }))
+            }))
+          };
+          
+          setLocation("/", { 
+            state: { 
+              guestResult: result,
+              testData: guestTestDataWithCorrectFlags, 
+              userAnswers,
+              showResults: true
+            } 
+          });
+        }, 0);
+      } else {
+        // Для авторизованных используем данные из response
+        const responseData = result as any;
+        const reviewTestData = responseData.testData || finalTestData;
+        
+        sessionStorage.setItem('testResultData', JSON.stringify({ 
+          result: responseData.result || result, 
+          testData: reviewTestData, 
+          userAnswers: responseData.userAnswers || userAnswers 
+        }));
+        setLocation("/results");
+      }
     },
     onError: () => {
       toast({
@@ -374,7 +332,6 @@ export default function TestPage() {
   });
 
   // Auto-save answers every 30 seconds (offline-first) - НЕ в режиме просмотра
-  // Используем refs чтобы избежать пересоздания useEffect при изменении данных
   const userAnswersRef = useRef(userAnswers);
   const timeLeftRef = useRef(timeLeft);
   const testDataRef = useRef(testData);
@@ -382,23 +339,7 @@ export default function TestPage() {
   const getOfflineTestRef = useRef(getOfflineTest);
   const toastRef = useRef(toast);
   
-  // Обновляем refs после каждого рендера (это безопасно, не вызывает ре-рендер)
-  // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
-  /*
-  useEffect(() => {
-    if (renderCount.current > 10) {
-      console.log('📌 Refs updated');
-    }
-    userAnswersRef.current = userAnswers;
-    timeLeftRef.current = timeLeft;
-    testDataRef.current = testData;
-    finalTestDataRef.current = finalTestData;
-    getOfflineTestRef.current = getOfflineTest;
-    toastRef.current = toast;
-  });
-  */
-  
-  // Обновляем refs напрямую в render phase (это безопасно)
+  // Обновляем refs напрямую в render phase
   userAnswersRef.current = userAnswers;
   timeLeftRef.current = timeLeft;
   testDataRef.current = testData;
@@ -510,13 +451,13 @@ export default function TestPage() {
     handleTimeUpRef.current = handleTimeUp;
   }, [handleTimeUp]);
   
-  // Redirect to home if no match - ВАЖНО: в useEffect чтобы не вызывать setState в render phase!
+  // Redirect to home if no match
   useEffect(() => {
     if ((!match && !publicMatch) || !variantId) {
       setLocation("/");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [match, publicMatch, variantId]); // НЕ включаем setLocation в dependencies!
+  }, [match, publicMatch, variantId]);
 
   if ((!match && !publicMatch) || !variantId) {
     return null;
@@ -549,8 +490,6 @@ export default function TestPage() {
     : !!(finalTestData && finalTestData.variant && finalTestData.variant.block && finalTestData.testData);
   
   if (!hasRequiredData) {
-
-    
     return (
       <div className="min-h-screen bg-background">
         <main className="container mx-auto px-4 lg:px-6 py-8">
@@ -568,17 +507,11 @@ export default function TestPage() {
     );
   }
 
-  // Краткое логирование данных в режиме просмотра
-  if (isReviewMode && testData) {
-  }
-
   const currentQuestion = allQuestions[currentQuestionIndex];
-  const progress = ((currentQuestionIndex + 1) / allQuestions.length) * 100;
 
   // Вычисляем номер вопроса внутри предмета
   const getQuestionNumberInSubject = (globalIndex: number) => {
     let questionCount = 0;
-    let currentSubjectIndex = 0;
     
     for (let i = 0; i < finalTestData.testData.length; i++) {
       const subjectQuestionCount = finalTestData.testData[i].questions.length;
@@ -599,33 +532,33 @@ export default function TestPage() {
 
   const currentQuestionInfo = getQuestionNumberInSubject(currentQuestionIndex);
 
-	const handleAnswerSelect = (questionId: string, answerId: string) => {
-	  // Всегда множественный выбор - toggle в массиве
-	  setUserAnswers(prev => {
-	    const current = prev[questionId];
-	    const currentArray = Array.isArray(current) ? current : [];
-	    
-	    if (currentArray.includes(answerId)) {
-	      // Убираем ответ
-	      return {
-	        ...prev,
-	        [questionId]: currentArray.filter(id => id !== answerId),
-	      };
-	    } else {
-	      // Добавляем ответ (максимум 3)
-	      const newArray = [...currentArray, answerId];
-	      if (newArray.length <= 3) {
-	        return {
-	          ...prev,
-	          [questionId]: newArray,
-	        };
-	      } else {
-	        // Если больше 3х - не добавляем
-	        return prev;
-	      }
-	    }
-	  });
-	};
+  const handleAnswerSelect = (questionId: string, answerId: string) => {
+    // Всегда множественный выбор - toggle в массиве
+    setUserAnswers(prev => {
+      const current = prev[questionId];
+      const currentArray = Array.isArray(current) ? current : [];
+      
+      if (currentArray.includes(answerId)) {
+        // Убираем ответ
+        return {
+          ...prev,
+          [questionId]: currentArray.filter(id => id !== answerId),
+        };
+      } else {
+        // Добавляем ответ (максимум 3)
+        const newArray = [...currentArray, answerId];
+        if (newArray.length <= 3) {
+          return {
+            ...prev,
+            [questionId]: newArray,
+          };
+        } else {
+          // Если больше 3х - не добавляем
+          return prev;
+        }
+      }
+    });
+  };
 
   const handleSubmitTest = () => {
     setShowSubmitDialog(true);
@@ -636,8 +569,7 @@ export default function TestPage() {
     submitTestMutation.mutate(userAnswers);
   };
 
-// Mobile view with MobileTestNavigation
-// Mobile view with MobileTestNavigation
+  // Mobile view with MobileTestNavigation
   if (isMobile) {
     return (
       <div className="min-h-screen bg-background">
@@ -664,18 +596,18 @@ export default function TestPage() {
           isOfflineMode={isOfflineMode}
           hasCalculator={finalTestData?.variant?.block?.hasCalculator === true}
           hasPeriodicTable={finalTestData?.variant?.block?.hasPeriodicTable === true}
-          onShowSubmitDialog={() => setShowSubmitDialog(true)} // ← Добавляем этот prop
+          onShowSubmitDialog={() => setShowSubmitDialog(true)}
         />
       </div>
     );
   }
 
-  // Desktop view - возвращаем JSX напрямую без промежуточного компонента
+  // Desktop view
   return (
     <div className="min-h-screen bg-background">
       <main className="w-full mx-auto px-0 py-8">
         {/* Test Header */}
-          <div className="mb-6 px-4 lg:px-6">
+        <div className="mb-6 px-4 lg:px-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 space-y-3 md:space-y-0">
             <div>
               <div className="flex items-center gap-3 mb-2">
@@ -710,7 +642,7 @@ export default function TestPage() {
           </div>
         </div>
 
-  <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6 px-4 lg:px-0">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6 px-4 lg:px-0">
           {/* Left subject menu (1 of 4) */}
           <div className="lg:col-span-1 lg:pl-0">
             <Card>
@@ -763,8 +695,6 @@ export default function TestPage() {
                 })}
               </CardContent>
             </Card>
-
-
           </div>
 
           {/* Question Content (center - 3 of 4 columns = 75%) */}
@@ -781,12 +711,6 @@ export default function TestPage() {
                   {/* Текст вопроса */}
                   <div className="flex-1">
                     <div className="text-lg text-foreground leading-relaxed">
-											{/* Для отладки */}
-											<div style={{ display: 'none' }}>
-											  Текст вопроса: {currentQuestion?.text}
-											  <br />
-											  Содержит LaTeX: {currentQuestion?.text?.includes('\\frac') ? 'Да' : 'Нет'}
-											</div>
                       <TextWithMath text={currentQuestion?.text || ""} />
                     </div>
                     
@@ -816,78 +740,78 @@ export default function TestPage() {
                   )}
                 </div>
                 
-				<div className="space-y-3">
-				  {currentQuestion?.answers.map((answer, index) => {
-				    // Всегда множественный выбор (можно выбрать до 3х ответов)
-				    const hasMultipleAnswers = true;
-				    const userAnswer = userAnswers[currentQuestion.id];
-				
-				    // Универсальная логика для isSelected
-				    const isSelected = Array.isArray(userAnswer) 
-				      ? userAnswer.includes(answer.id)
-				      : userAnswer === answer.id;
-				
-				    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
-				    
-				    if (isReviewMode) {
-				      if (isSelected && answer.isCorrect) {
-				        answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
-				      } else if (isSelected && !answer.isCorrect) {
-				        answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
-				      } else if (!isSelected && answer.isCorrect) {
-				        answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
-				      } else {
-				        answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
-				      }
-				    } else {
-				      answerStyle += isSelected 
-				        ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
-				        : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
-				    }
-				
-				    return (
-				      <button
-				        key={answer.id}
-				        type="button"
-				        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
-				        className={answerStyle}
-				        disabled={isReviewMode}
-				        data-testid={`button-answer-${answer.id}`}
-				      >
-				        {/* Checkbox indicator (всегда чекбокс) */}
-				        {!isReviewMode && (
-				          <div className="flex-shrink-0 mt-0.5">
-				            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-				              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
-				            }`}>
-				              {isSelected && <span className="text-white text-xs">✓</span>}
-				            </div>
-				          </div>
-				        )}
-				        
-				        {/* Answer text */}
-				        <div className="flex-1 text-left">
-				          <span className="font-medium mr-3">
-				            {String.fromCharCode(65 + index)}.
-				          </span>
-				          <TextWithMath text={answer.text} />
-				        </div>
-				        
-				        {/* Review mode indicators */}
-				        {isReviewMode && (() => {
-				          if (isSelected && answer.isCorrect) {
-				            return <span className="ml-2 text-blue-500 font-bold">✓</span>;
-				          } else if (isSelected && !answer.isCorrect) {
-				            return <span className="ml-2 text-red-600 font-bold">✗</span>;
-				          } else if (!isSelected && answer.isCorrect) {
-				            return <span className="ml-2 text-green-600 font-bold">✓</span>;
-				          }
-				          return null;
-				        })()}
-				      </button>
-				    );
-				  })}
-				</div>
+                <div className="space-y-3">
+                  {currentQuestion?.answers.map((answer, index) => {
+                    // Всегда множественный выбор (можно выбрать до 3х ответов)
+                    const hasMultipleAnswers = true;
+                    const userAnswer = userAnswers[currentQuestion.id];
+
+                    // Универсальная логика для isSelected
+                    const isSelected = Array.isArray(userAnswer) 
+                      ? userAnswer.includes(answer.id)
+                      : userAnswer === answer.id;
+
+                    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
+                    
+                    if (isReviewMode) {
+                      if (isSelected && answer.isCorrect) {
+                        answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
+                      } else if (isSelected && !answer.isCorrect) {
+                        answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
+                      } else if (!isSelected && answer.isCorrect) {
+                        answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
+                      } else {
+                        answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
+                      }
+                    } else {
+                      answerStyle += isSelected 
+                        ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
+                        : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
+                    }
+
+                    return (
+                      <button
+                        key={answer.id}
+                        type="button"
+                        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
+                        className={answerStyle}
+                        disabled={isReviewMode}
+                        data-testid={`button-answer-${answer.id}`}
+                      >
+                        {/* Checkbox indicator (всегда чекбокс) */}
+                        {!isReviewMode && (
+                          <div className="flex-shrink-0 mt-0.5">
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
+                            }`}>
+                              {isSelected && <span className="text-white text-xs">✓</span>}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Answer text */}
+                        <div className="flex-1 text-left">
+                          <span className="font-medium mr-3">
+                            {String.fromCharCode(65 + index)}.
+                          </span>
+                          <TextWithMath text={answer.text} />
+                        </div>
+                        
+                        {/* Review mode indicators */}
+                        {isReviewMode && (() => {
+                          if (isSelected && answer.isCorrect) {
+                            return <span className="ml-2 text-blue-500 font-bold">✓</span>;
+                          } else if (isSelected && !answer.isCorrect) {
+                            return <span className="ml-2 text-red-600 font-bold">✗</span>;
+                          } else if (!isSelected && answer.isCorrect) {
+                            return <span className="ml-2 text-green-600 font-bold">✓</span>;
+                          }
+                          return null;
+                        })()}
+                      </button>
+                    );
+                  })}
+                </div>
                 
                 {/* Изображение решения - показывается только в режиме просмотра результатов */}
                 {isReviewMode && currentQuestion?.solutionImageUrl && (
@@ -1013,11 +937,7 @@ export default function TestPage() {
               </CardContent>
             </Card>
           </div>
-
-          {/* Right sidebar removed as per request */}
         </div>
-
-        {/* external pagination removed (navigation shown inside question card) */}
 
         {/* Fixed finish button bottom-right - только в режиме тестирования */}
         {!isReviewMode && (
@@ -1103,25 +1023,18 @@ export default function TestPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* Video proctoring removed */}
-
-
       </main>
     </div>
   );
-}
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+}import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { useRenderDebug } from "@/utils/render-debug";
 // Header intentionally not rendered on test page to avoid navigation during a running test
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1133,7 +1046,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import TestToolsModal from "@/components/test-tools-modal";
-// Proctoring removed
 import { queryClient } from "@/lib/queryClient";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -1155,71 +1067,57 @@ const containsMath = (text: string): boolean => {
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Разделяем текст на части: обычный текст и формулы
+  // Упрощенная версия парсинга - ищем формулы в формате \(...\) и \\(...\\)
   const parts: React.ReactNode[] = [];
-  let currentText = '';
-  let i = 0;
+  const regex = /(\\\(.*?\\\)|\\\\\(.*?\\\\\))/g;
+  const matches = text.match(regex);
   
-  while (i < text.length) {
-    // Ищем начало формулы: \( или \\(
-    if ((text[i] === '\\' && i + 1 < text.length && text[i + 1] === '(') ||
-        (text[i] === '\\' && i + 2 < text.length && text[i + 1] === '\\' && text[i + 2] === '(')) {
-      
-      // Сохраняем предыдущий текст
-      if (currentText) {
-        parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
-        currentText = '';
-      }
-      
-      // Ищем конец формулы: \) или \\)
-      let formula = '';
-      let j = i;
-      let bracketCount = 0;
-      
-      if (text[i] === '\\' && text[i + 1] === '\\' && text[i + 2] === '(') {
-        // Формат \\(
-        formula = '\\(';
-        j = i + 3;
-        bracketCount = 1;
-      } else {
-        // Формат \(
-        formula = '\\(';
-        j = i + 2;
-        bracketCount = 1;
-      }
-      
-      while (j < text.length && bracketCount > 0) {
-        formula += text[j];
-        
-        if (text[j] === '\\' && j + 1 < text.length && text[j + 1] === ')') {
-          bracketCount--;
-          formula += ')';
-          j++;
-        } else if (text[j] === '\\' && j + 2 < text.length && text[j + 1] === '\\' && text[j + 2] === ')') {
-          bracketCount--;
-          formula += '\\)';
-          j += 2;
-        } else if (text[j] === '(') {
-          bracketCount++;
-        }
-        j++;
-      }
-      
-      i = j;
-      parts.push(<MathExpression key={`math-${parts.length}`} expression={formula} />);
-    } else {
-      currentText += text[i];
-      i++;
-    }
+  if (!matches) {
+    // Если нет формул, возвращаем просто текст
+    return <span>{text}</span>;
   }
   
+  let lastIndex = 0;
+  
+  matches.forEach((match, index) => {
+    const matchIndex = text.indexOf(match, lastIndex);
+    
+    // Добавляем текст перед формулой
+    if (matchIndex > lastIndex) {
+      parts.push(<span key={`text-${index}`}>{text.substring(lastIndex, matchIndex)}</span>);
+    }
+    
+    // Добавляем формулу
+    parts.push(
+      <MathExpression 
+        key={`math-${index}`} 
+        expression={match} 
+        displayMode={false}
+      />
+    );
+    
+    lastIndex = matchIndex + match.length;
+  });
+  
   // Добавляем оставшийся текст
-  if (currentText) {
-    parts.push(<span key={`text-${parts.length}`}>{currentText}</span>);
+  if (lastIndex < text.length) {
+    parts.push(<span key={`text-end`}>{text.substring(lastIndex)}</span>);
   }
   
   return <>{parts}</>;
 };
+
+interface TestQuestion {
+  id: string;
+  text: string;
+  imageUrl?: string;
+  solutionImageUrl?: string;
+  answers: {
+    id: string;
+    text: string;
+    isCorrect: boolean;
+  }[];
+}
 
 interface TestSubject {
   subject: {
@@ -1258,8 +1156,6 @@ export default function TestPage() {
     };
   }, []);
 
-  // Упрощенная проверка режима просмотра
-
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, string | string[]>>(
     isReviewMode ? (reviewUserAnswers || {}) : {}
@@ -1289,46 +1185,6 @@ export default function TestPage() {
   const handleOpenPeriodicTable = useCallback(() => {
     setShowPeriodicTable(true);
   }, []);
-
-  // Small helper: numeric pagination (simple)
-  function Pagination({ total, current, onChange }: { total: number; current: number; onChange: (i: number) => void }) {
-    const windowSize = 7; // number of page buttons to show in pager window
-    if (total <= 1) return null;
-
-    const half = Math.floor(windowSize / 2);
-    let start = Math.max(0, current - half);
-    let end = Math.min(total, start + windowSize);
-    if (end - start < windowSize) {
-      start = Math.max(0, end - windowSize);
-    }
-
-    const pages: number[] = [];
-    for (let i = start; i < end; i++) pages.push(i);
-
-    const showLeftEllipsis = start > 1;
-    const showRightEllipsis = end < total - 1;
-
-    return (
-      <div className="flex items-center gap-2">
-        {/* first page if not in window */}
-        {start > 0 && (
-          <button onClick={() => onChange(0)} className={`px-2 py-1 rounded ${0 === current ? 'bg-accent text-white' : 'bg-transparent border'}`}>1</button>
-        )}
-        {showLeftEllipsis && <span className="px-2">...</span>}
-        {pages.map(p => (
-          <button
-            key={p}
-            onClick={() => onChange(p)}
-            className={`px-2 py-1 rounded ${p === current ? 'bg-accent text-white' : 'bg-transparent border'}`}
-          >{p+1}</button>
-        ))}
-        {showRightEllipsis && <span className="px-2">...</span>}
-        {end < total && (
-          <button onClick={() => onChange(total - 1)} className={`px-2 py-1 rounded ${total - 1 === current ? 'bg-accent text-white' : 'bg-transparent border'}`}>{total}</button>
-        )}
-      </div>
-    );
-  }
 
   // Clear previous test results when starting new test
   useEffect(() => {
@@ -1370,14 +1226,10 @@ export default function TestPage() {
     };
   }, [isReviewMode]);
 
-  // pagination window size intentionally unified across devices
-
-  // Proctoring removed
-
   const { data: testData, isLoading } = useQuery<TestData>({
     queryKey: [isPublicTest ? "/api/public/variants" : "/api/variants", variantId, "test"],
     enabled: !!variantId && !isReviewMode,
-    initialData: undefined, // НЕ используем initialData в режиме просмотра
+    initialData: undefined,
   });
 
   // В режиме просмотра используем ТОЛЬКО данные из reviewTestData (API)
@@ -1393,12 +1245,8 @@ export default function TestPage() {
     );
   }, [finalTestData]);
 
-  // Proctoring removed
-
   const submitTestMutation = useMutation({
     mutationFn: async (answers: Record<string, string | string[]>) => {
-  // Proctoring removed: no action needed here.
-
       try {
         // Try online submission first
         if (syncStatus.isOnline) {
@@ -1463,44 +1311,44 @@ export default function TestPage() {
       localStorage.removeItem(`test_${variantId}_answers`);
       
       // For guest results, show results directly, for authenticated users navigate to results page
-			if (result.isGuestResult) {
-			  setTimeout(() => {
-			    // Для гостей нужно создать testData с флагами isCorrect
-			    const guestTestDataWithCorrectFlags = {
-			      variant: finalTestData.variant,
-			      testData: finalTestData.testData.map(subject => ({
-			        subject: subject.subject,
-			        questions: subject.questions.map(question => ({
-			          ...question,
-			          answers: question.answers.map(answer => ({
-			            ...answer,
-			            isCorrect: false // Или нужно получить реальные данные?
-			          }))
-			        }))
-			      }))
-			    };
-			    
-			    setLocation("/", { 
-			      state: { 
-			        guestResult: result,
-			        testData: guestTestDataWithCorrectFlags, 
-			        userAnswers,
-			        showResults: true
-			      } 
-			    });
-			  }, 0);
-			} else {
-			  // Для авторизованных используем данные из response
-			  const responseData = result as any;
-			  const reviewTestData = responseData.testData || finalTestData;
-			  
-			  sessionStorage.setItem('testResultData', JSON.stringify({ 
-			    result: responseData.result || result, 
-			    testData: reviewTestData, 
-			    userAnswers: responseData.userAnswers || userAnswers 
-			  }));
-			  setLocation("/results");
-			}
+      if (result.isGuestResult) {
+        setTimeout(() => {
+          // Для гостей нужно создать testData с флагами isCorrect
+          const guestTestDataWithCorrectFlags = {
+            variant: finalTestData.variant,
+            testData: finalTestData.testData.map(subject => ({
+              subject: subject.subject,
+              questions: subject.questions.map(question => ({
+                ...question,
+                answers: question.answers.map(answer => ({
+                  ...answer,
+                  isCorrect: false // Или нужно получить реальные данные?
+                }))
+              }))
+            }))
+          };
+          
+          setLocation("/", { 
+            state: { 
+              guestResult: result,
+              testData: guestTestDataWithCorrectFlags, 
+              userAnswers,
+              showResults: true
+            } 
+          });
+        }, 0);
+      } else {
+        // Для авторизованных используем данные из response
+        const responseData = result as any;
+        const reviewTestData = responseData.testData || finalTestData;
+        
+        sessionStorage.setItem('testResultData', JSON.stringify({ 
+          result: responseData.result || result, 
+          testData: reviewTestData, 
+          userAnswers: responseData.userAnswers || userAnswers 
+        }));
+        setLocation("/results");
+      }
     },
     onError: () => {
       toast({
@@ -1512,7 +1360,6 @@ export default function TestPage() {
   });
 
   // Auto-save answers every 30 seconds (offline-first) - НЕ в режиме просмотра
-  // Используем refs чтобы избежать пересоздания useEffect при изменении данных
   const userAnswersRef = useRef(userAnswers);
   const timeLeftRef = useRef(timeLeft);
   const testDataRef = useRef(testData);
@@ -1520,23 +1367,7 @@ export default function TestPage() {
   const getOfflineTestRef = useRef(getOfflineTest);
   const toastRef = useRef(toast);
   
-  // Обновляем refs после каждого рендера (это безопасно, не вызывает ре-рендер)
-  // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
-  /*
-  useEffect(() => {
-    if (renderCount.current > 10) {
-      console.log('📌 Refs updated');
-    }
-    userAnswersRef.current = userAnswers;
-    timeLeftRef.current = timeLeft;
-    testDataRef.current = testData;
-    finalTestDataRef.current = finalTestData;
-    getOfflineTestRef.current = getOfflineTest;
-    toastRef.current = toast;
-  });
-  */
-  
-  // Обновляем refs напрямую в render phase (это безопасно)
+  // Обновляем refs напрямую в render phase
   userAnswersRef.current = userAnswers;
   timeLeftRef.current = timeLeft;
   testDataRef.current = testData;
@@ -1648,13 +1479,13 @@ export default function TestPage() {
     handleTimeUpRef.current = handleTimeUp;
   }, [handleTimeUp]);
   
-  // Redirect to home if no match - ВАЖНО: в useEffect чтобы не вызывать setState в render phase!
+  // Redirect to home if no match
   useEffect(() => {
     if ((!match && !publicMatch) || !variantId) {
       setLocation("/");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [match, publicMatch, variantId]); // НЕ включаем setLocation в dependencies!
+  }, [match, publicMatch, variantId]);
 
   if ((!match && !publicMatch) || !variantId) {
     return null;
@@ -1687,8 +1518,6 @@ export default function TestPage() {
     : !!(finalTestData && finalTestData.variant && finalTestData.variant.block && finalTestData.testData);
   
   if (!hasRequiredData) {
-
-    
     return (
       <div className="min-h-screen bg-background">
         <main className="container mx-auto px-4 lg:px-6 py-8">
@@ -1706,17 +1535,11 @@ export default function TestPage() {
     );
   }
 
-  // Краткое логирование данных в режиме просмотра
-  if (isReviewMode && testData) {
-  }
-
   const currentQuestion = allQuestions[currentQuestionIndex];
-  const progress = ((currentQuestionIndex + 1) / allQuestions.length) * 100;
 
   // Вычисляем номер вопроса внутри предмета
   const getQuestionNumberInSubject = (globalIndex: number) => {
     let questionCount = 0;
-    let currentSubjectIndex = 0;
     
     for (let i = 0; i < finalTestData.testData.length; i++) {
       const subjectQuestionCount = finalTestData.testData[i].questions.length;
@@ -1737,33 +1560,33 @@ export default function TestPage() {
 
   const currentQuestionInfo = getQuestionNumberInSubject(currentQuestionIndex);
 
-	const handleAnswerSelect = (questionId: string, answerId: string) => {
-	  // Всегда множественный выбор - toggle в массиве
-	  setUserAnswers(prev => {
-	    const current = prev[questionId];
-	    const currentArray = Array.isArray(current) ? current : [];
-	    
-	    if (currentArray.includes(answerId)) {
-	      // Убираем ответ
-	      return {
-	        ...prev,
-	        [questionId]: currentArray.filter(id => id !== answerId),
-	      };
-	    } else {
-	      // Добавляем ответ (максимум 3)
-	      const newArray = [...currentArray, answerId];
-	      if (newArray.length <= 3) {
-	        return {
-	          ...prev,
-	          [questionId]: newArray,
-	        };
-	      } else {
-	        // Если больше 3х - не добавляем
-	        return prev;
-	      }
-	    }
-	  });
-	};
+  const handleAnswerSelect = (questionId: string, answerId: string) => {
+    // Всегда множественный выбор - toggle в массиве
+    setUserAnswers(prev => {
+      const current = prev[questionId];
+      const currentArray = Array.isArray(current) ? current : [];
+      
+      if (currentArray.includes(answerId)) {
+        // Убираем ответ
+        return {
+          ...prev,
+          [questionId]: currentArray.filter(id => id !== answerId),
+        };
+      } else {
+        // Добавляем ответ (максимум 3)
+        const newArray = [...currentArray, answerId];
+        if (newArray.length <= 3) {
+          return {
+            ...prev,
+            [questionId]: newArray,
+          };
+        } else {
+          // Если больше 3х - не добавляем
+          return prev;
+        }
+      }
+    });
+  };
 
   const handleSubmitTest = () => {
     setShowSubmitDialog(true);
@@ -1774,8 +1597,7 @@ export default function TestPage() {
     submitTestMutation.mutate(userAnswers);
   };
 
-// Mobile view with MobileTestNavigation
-// Mobile view with MobileTestNavigation
+  // Mobile view with MobileTestNavigation
   if (isMobile) {
     return (
       <div className="min-h-screen bg-background">
@@ -1802,18 +1624,18 @@ export default function TestPage() {
           isOfflineMode={isOfflineMode}
           hasCalculator={finalTestData?.variant?.block?.hasCalculator === true}
           hasPeriodicTable={finalTestData?.variant?.block?.hasPeriodicTable === true}
-          onShowSubmitDialog={() => setShowSubmitDialog(true)} // ← Добавляем этот prop
+          onShowSubmitDialog={() => setShowSubmitDialog(true)}
         />
       </div>
     );
   }
 
-  // Desktop view - возвращаем JSX напрямую без промежуточного компонента
+  // Desktop view
   return (
     <div className="min-h-screen bg-background">
       <main className="w-full mx-auto px-0 py-8">
         {/* Test Header */}
-          <div className="mb-6 px-4 lg:px-6">
+        <div className="mb-6 px-4 lg:px-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 space-y-3 md:space-y-0">
             <div>
               <div className="flex items-center gap-3 mb-2">
@@ -1848,7 +1670,7 @@ export default function TestPage() {
           </div>
         </div>
 
-  <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6 px-4 lg:px-0">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6 px-4 lg:px-0">
           {/* Left subject menu (1 of 4) */}
           <div className="lg:col-span-1 lg:pl-0">
             <Card>
@@ -1901,8 +1723,6 @@ export default function TestPage() {
                 })}
               </CardContent>
             </Card>
-
-
           </div>
 
           {/* Question Content (center - 3 of 4 columns = 75%) */}
@@ -1919,12 +1739,6 @@ export default function TestPage() {
                   {/* Текст вопроса */}
                   <div className="flex-1">
                     <div className="text-lg text-foreground leading-relaxed">
-											{/* Для отладки */}
-											<div style={{ display: 'none' }}>
-											  Текст вопроса: {currentQuestion?.text}
-											  <br />
-											  Содержит LaTeX: {currentQuestion?.text?.includes('\\frac') ? 'Да' : 'Нет'}
-											</div>
                       <TextWithMath text={currentQuestion?.text || ""} />
                     </div>
                     
@@ -1954,78 +1768,78 @@ export default function TestPage() {
                   )}
                 </div>
                 
-				<div className="space-y-3">
-				  {currentQuestion?.answers.map((answer, index) => {
-				    // Всегда множественный выбор (можно выбрать до 3х ответов)
-				    const hasMultipleAnswers = true;
-				    const userAnswer = userAnswers[currentQuestion.id];
-				
-				    // Универсальная логика для isSelected
-				    const isSelected = Array.isArray(userAnswer) 
-				      ? userAnswer.includes(answer.id)
-				      : userAnswer === answer.id;
-				
-				    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
-				    
-				    if (isReviewMode) {
-				      if (isSelected && answer.isCorrect) {
-				        answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
-				      } else if (isSelected && !answer.isCorrect) {
-				        answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
-				      } else if (!isSelected && answer.isCorrect) {
-				        answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
-				      } else {
-				        answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
-				      }
-				    } else {
-				      answerStyle += isSelected 
-				        ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
-				        : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
-				    }
-				
-				    return (
-				      <button
-				        key={answer.id}
-				        type="button"
-				        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
-				        className={answerStyle}
-				        disabled={isReviewMode}
-				        data-testid={`button-answer-${answer.id}`}
-				      >
-				        {/* Checkbox indicator (всегда чекбокс) */}
-				        {!isReviewMode && (
-				          <div className="flex-shrink-0 mt-0.5">
-				            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-				              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
-				            }`}>
-				              {isSelected && <span className="text-white text-xs">✓</span>}
-				            </div>
-				          </div>
-				        )}
-				        
-				        {/* Answer text */}
-				        <div className="flex-1 text-left">
-				          <span className="font-medium mr-3">
-				            {String.fromCharCode(65 + index)}.
-				          </span>
-				          <TextWithMath text={answer.text} />
-				        </div>
-				        
-				        {/* Review mode indicators */}
-				        {isReviewMode && (() => {
-				          if (isSelected && answer.isCorrect) {
-				            return <span className="ml-2 text-blue-500 font-bold">✓</span>;
-				          } else if (isSelected && !answer.isCorrect) {
-				            return <span className="ml-2 text-red-600 font-bold">✗</span>;
-				          } else if (!isSelected && answer.isCorrect) {
-				            return <span className="ml-2 text-green-600 font-bold">✓</span>;
-				          }
-				          return null;
-				        })()}
-				      </button>
-				    );
-				  })}
-				</div>
+                <div className="space-y-3">
+                  {currentQuestion?.answers.map((answer, index) => {
+                    // Всегда множественный выбор (можно выбрать до 3х ответов)
+                    const hasMultipleAnswers = true;
+                    const userAnswer = userAnswers[currentQuestion.id];
+
+                    // Универсальная логика для isSelected
+                    const isSelected = Array.isArray(userAnswer) 
+                      ? userAnswer.includes(answer.id)
+                      : userAnswer === answer.id;
+
+                    let answerStyle = "w-full p-4 rounded-lg border text-left flex items-start gap-3 ";
+                    
+                    if (isReviewMode) {
+                      if (isSelected && answer.isCorrect) {
+                        answerStyle += "border-2 border-blue-500 bg-blue-50 text-foreground";
+                      } else if (isSelected && !answer.isCorrect) {
+                        answerStyle += "border-2 border-red-500 bg-red-50 text-foreground";
+                      } else if (!isSelected && answer.isCorrect) {
+                        answerStyle += "border-2 border-green-500 bg-green-50 text-foreground";
+                      } else {
+                        answerStyle += "border border-gray-300 bg-gray-50 opacity-60";
+                      }
+                    } else {
+                      answerStyle += isSelected 
+                        ? "border-2 border-blue-500 bg-blue-50 cursor-pointer"
+                        : "border border-gray-300 hover:bg-gray-50 cursor-pointer";
+                    }
+
+                    return (
+                      <button
+                        key={answer.id}
+                        type="button"
+                        onClick={() => !isReviewMode && handleAnswerSelect(currentQuestion.id, answer.id)}
+                        className={answerStyle}
+                        disabled={isReviewMode}
+                        data-testid={`button-answer-${answer.id}`}
+                      >
+                        {/* Checkbox indicator (всегда чекбокс) */}
+                        {!isReviewMode && (
+                          <div className="flex-shrink-0 mt-0.5">
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                              isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
+                            }`}>
+                              {isSelected && <span className="text-white text-xs">✓</span>}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Answer text */}
+                        <div className="flex-1 text-left">
+                          <span className="font-medium mr-3">
+                            {String.fromCharCode(65 + index)}.
+                          </span>
+                          <TextWithMath text={answer.text} />
+                        </div>
+                        
+                        {/* Review mode indicators */}
+                        {isReviewMode && (() => {
+                          if (isSelected && answer.isCorrect) {
+                            return <span className="ml-2 text-blue-500 font-bold">✓</span>;
+                          } else if (isSelected && !answer.isCorrect) {
+                            return <span className="ml-2 text-red-600 font-bold">✗</span>;
+                          } else if (!isSelected && answer.isCorrect) {
+                            return <span className="ml-2 text-green-600 font-bold">✓</span>;
+                          }
+                          return null;
+                        })()}
+                      </button>
+                    );
+                  })}
+                </div>
                 
                 {/* Изображение решения - показывается только в режиме просмотра результатов */}
                 {isReviewMode && currentQuestion?.solutionImageUrl && (
@@ -2151,11 +1965,7 @@ export default function TestPage() {
               </CardContent>
             </Card>
           </div>
-
-          {/* Right sidebar removed as per request */}
         </div>
-
-        {/* external pagination removed (navigation shown inside question card) */}
 
         {/* Fixed finish button bottom-right - только в режиме тестирования */}
         {!isReviewMode && (
@@ -2241,10 +2051,6 @@ export default function TestPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* Video proctoring removed */}
-
-
       </main>
     </div>
   );
