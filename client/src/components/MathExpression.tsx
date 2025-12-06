@@ -23,59 +23,35 @@ const MathExpression: React.FC<MathExpressionProps> = ({
         
         let latexExpression = expression.trim();
         
-        // Извлекаем LaTeX из различных обёрток:
-        // 1. \( ... \)  (пропущенный слеш)
-        // 2. \\( ... \\) (правильный Markdown)
-        // 3. $ ... $ (inline math)
-        // 4. $$ ... $$ (display math)
+        console.log('Оригинальное выражение:', latexExpression);
         
-        if ((latexExpression.startsWith('\\(') || latexExpression.startsWith('\\(\\(')) && 
-            (latexExpression.endsWith('\\)') || latexExpression.endsWith('\\\\)'))) {
-          // Удаляем \( в начале и \) в конце
-          latexExpression = latexExpression.replace(/^\\\(/, '').replace(/\\\)$/, '');
-          // Также удаляем лишние слеши
-          latexExpression = latexExpression.replace(/^\\\\\(/, '').replace(/\\\\\)$/, '');
+        // Удаляем обертки \( и \)
+        if (latexExpression.startsWith('\\(') && latexExpression.endsWith('\\)')) {
+          latexExpression = latexExpression.substring(2, latexExpression.length - 2);
         }
         
-        if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
-          latexExpression = latexExpression.substring(1, latexExpression.length - 1);
-          if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
-            latexExpression = latexExpression.substring(1, latexExpression.length - 1);
-            displayMode = true;
+        console.log('Очищенное выражение:', latexExpression);
+        
+        // Всегда пытаемся рендерить как LaTeX, даже если нет явных команд
+        // (так как могут быть символы ^, _, и т.д.)
+        katex.render(latexExpression, containerRef.current, {
+          displayMode,
+          throwOnError: false, // Не выбрасывать ошибку при проблемах
+          strict: false, // Нестрогий режим
+          trust: true, // Доверять командам
+          macros: {
+            "\\degree": "^{\\circ}",
+            "\\celsius": "^{\\circ}\\mathrm{C}",
+            "\\fahrenheit": "^{\\circ}\\mathrm{F}",
+            "\\permille": "\\unicode{0x2030}",
+            "\\micro": "\\unicode{0x00B5}",
           }
-        }
-        
-        // Проверяем, является ли выражение формулой LaTeX
-        const isMathExpression = 
-          latexExpression.includes('\\frac') || 
-          latexExpression.includes('\\sqrt') ||
-          latexExpression.includes('\\cdot') ||
-          latexExpression.includes('\\times') ||
-          latexExpression.includes('^') ||
-          latexExpression.includes('_') ||
-          latexExpression.includes('\\sin') ||
-          latexExpression.includes('\\cos') ||
-          latexExpression.includes('\\tan') ||
-          latexExpression.includes('\\log') ||
-          latexExpression.includes('\\int') ||
-          latexExpression.includes('\\,');
-        
-        if (isMathExpression) {
-          // Рендерим как формулу
-          katex.render(latexExpression, containerRef.current, {
-            displayMode,
-            throwOnError: false,
-            strict: false,
-            trust: true,
-          });
-        } else {
-          // Обычный текст
-          containerRef.current.textContent = expression;
-        }
+        });
       } catch (error: any) {
         console.error('KaTeX error for expression:', expression, error.message);
-        // Показываем исходный текст серым
-        containerRef.current.innerHTML = `<span style="color: #666; font-style: italic">${expression}</span>`;
+        // Показываем исходный текст с подсветкой ошибки
+        containerRef.current.innerHTML = 
+          `<span style="color: red; border: 1px solid red; padding: 2px;">${expression}</span>`;
       }
     }
   }, [expression, displayMode]);
