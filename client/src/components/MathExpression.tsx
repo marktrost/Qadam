@@ -8,51 +8,6 @@ interface MathExpressionProps {
   className?: string;
 }
 
-// Проверяем, является ли текст ЧИСТОЙ математической формулой
-const isPureMath = (text: string): boolean => {
-  // Чистые формулы: начинаются с \(, содержат \frac, \sqrt, \int, или только математические символы
-  return text.startsWith('\\(') || 
-         /^[a-zA-Z0-9\s\^_\+\-\*\/=<>\(\)\{\}\.,;:!°√∫∑∏∓±×·]+\^?[0-9]*$/.test(text) ||
-         text.includes('\\frac') ||
-         text.includes('\\sqrt') ||
-         text.includes('\\int') ||
-         text.includes('\\vec') ||
-         text.includes('^{') ||
-         text.includes('_{');
-};
-
-// Конвертируем только математические части
-const convertMathToLatex = (text: string): string => {
-  let result = text;
-  
-  // Конвертируем математические курсивные символы
-  const mathToLatin: Record<string, string> = {
-    '𝑎': 'a', '𝑏': 'b', '𝑐': 'c', '𝑑': 'd', '𝑒': 'e', '𝑓': 'f', '𝑔': 'g',
-    'ℎ': 'h', '𝑖': 'i', '𝑗': 'j', '𝑘': 'k', '𝑙': 'l', '𝑚': 'm', '𝑛': 'n',
-    '𝑜': 'o', '𝑝': 'p', '𝑞': 'q', '𝑟': 'r', '𝑠': 's', '𝑡': 't', '𝑢': 'u',
-    '𝑣': 'v', '𝑤': 'w', '𝑥': 'x', '𝑦': 'y', '𝑧': 'z',
-  };
-  
-  Object.keys(mathToLatin).forEach(mathChar => {
-    result = result.replace(new RegExp(mathChar, 'g'), mathToLatin[mathChar]);
-  });
-  
-  // Векторы
-  result = result.replace(/([a-zA-Z])⃗⃗/g, '\\vec{$1}');
-  result = result.replace(/([a-zA-Z])⃗/g, '\\vec{$1}');
-  
-  // Степени и индексы
-  result = result.replace(/([a-zA-Z0-9\)])\^([0-9\+\-]+)/g, '$1^{$2}');
-  result = result.replace(/([a-zA-Z0-9\)])_([0-9]+)/g, '$1_{$2}');
-  
-  // Математические символы
-  result = result.replace(/°/g, '^{\\circ}');
-  result = result.replace(/×/g, '\\times');
-  result = result.replace(/·/g, '\\cdot');
-  
-  return result;
-};
-
 const MathExpression: React.FC<MathExpressionProps> = ({
   expression,
   displayMode = false,
@@ -63,46 +18,69 @@ const MathExpression: React.FC<MathExpressionProps> = ({
   React.useEffect(() => {
     if (containerRef.current && expression) {
       try {
-        console.log('Рендерим:', expression);
-        
+        // Очищаем контейнер
         containerRef.current.innerHTML = '';
         
-        let latex = expression.trim();
+        let latexExpression = expression.trim();
         
-        // Убираем \( и \) если есть
-        if (latex.startsWith('\\(') && latex.endsWith('\\)')) {
-          latex = latex.substring(2, latex.length - 2);
+        // Извлекаем LaTeX из различных обёрток:
+        // 1. \( ... \)  (пропущенный слеш)
+        // 2. \\( ... \\) (правильный Markdown)
+        // 3. $ ... $ (inline math)
+        // 4. $$ ... $$ (display math)
+        
+        if ((latexExpression.startsWith('\\(') || latexExpression.startsWith('\\(\\(')) && 
+            (latexExpression.endsWith('\\)') || latexExpression.endsWith('\\\\)'))) {
+          // Удаляем \( в начале и \) в конце
+          latexExpression = latexExpression.replace(/^\\\(/, '').replace(/\\\)$/, '');
+          // Также удаляем лишние слеши
+          latexExpression = latexExpression.replace(/^\\\\\(/, '').replace(/\\\\\)$/, '');
         }
         
-        // Конвертируем математические символы
-        latex = convertMathToLatex(latex);
+        if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
+          latexExpression = latexExpression.substring(1, latexExpression.length - 1);
+          if (latexExpression.startsWith('$') && latexExpression.endsWith('$')) {
+            latexExpression = latexExpression.substring(1, latexExpression.length - 1);
+            displayMode = true;
+          }
+        }
         
-        // Проверяем: если это ЧИСТАЯ формула без текста
-        const isPureFormula = isPureMath(latex) && 
-                             !/[\u0400-\u04FFа-яА-ЯҚқӘәҒғҮүІіҢңӨөҰұҺһ]/.test(latex) &&
-                             !/\.|\?|!|,|;|:|»|«/.test(latex);
+        // Проверяем, является ли выражение формулой LaTeX
+        const isMathExpression = 
+          latexExpression.includes('\\frac') || 
+          latexExpression.includes('\\sqrt') ||
+          latexExpression.includes('\\cdot') ||
+          latexExpression.includes('\\times') ||
+          latexExpression.includes('^') ||
+          latexExpression.includes('_') ||
+          latexExpression.includes('\\sin') ||
+          latexExpression.includes('\\cos') ||
+          latexExpression.includes('\\tan') ||
+          latexExpression.includes('\\log') ||
+          latexExpression.includes('\\int') ||
+          latexExpression.includes('\\,');
         
-        if (isPureFormula) {
-          // Рендерим как LaTeX формулу
-          katex.render(latex, containerRef.current, {
-            displayMode: false,
+        if (isMathExpression) {
+          // Рендерим как формулу
+          katex.render(latexExpression, containerRef.current, {
+            displayMode,
             throwOnError: false,
             strict: false,
             trust: true,
           });
         } else {
-          // Обычный текст - не рендерим KaTeX!
+          // Обычный текст
           containerRef.current.textContent = expression;
         }
-        
       } catch (error: any) {
-        console.error('KaTeX error:', error.message);
-        containerRef.current.textContent = expression;
+        console.error('KaTeX error for expression:', expression, error.message);
+        // Показываем исходный текст серым
+        containerRef.current.innerHTML = `<span style="color: #666; font-style: italic">${expression}</span>`;
       }
     }
   }, [expression, displayMode]);
 
-  return <span ref={containerRef} className={className} />;
+  return <span ref={containerRef} className={`inline-block ${className}`} />;
 };
 
 export default MathExpression;
