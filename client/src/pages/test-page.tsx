@@ -36,44 +36,59 @@ const containsMath = (text: string): boolean => {
 };
 
 // Компонент для отображения текста со встроенными формулами
+// Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Упрощенная версия парсинга - ищем формулы в формате \(...\) и \\(...\\)
-  const parts: React.ReactNode[] = [];
-  const regex = /(\\\(.*?\\\)|\\\\\(.*?\\\\\))/g;
-  const matches = text.match(regex);
-  
-  if (!matches) {
-    // Если нет формул, возвращаем просто текст
-    return <span>{text}</span>;
+  // Если весь текст - это формула в формате \\(...\\), обрабатываем целиком
+  if (text.trim().startsWith('\\(') && text.trim().endsWith('\\)')) {
+    return <MathExpression expression={text} displayMode={false} />;
   }
   
-  let lastIndex = 0;
+  // Иначе ищем формулы внутри текста
+  const parts: React.ReactNode[] = [];
+  const regex = /(\\\(.*?\\\))/gs; // g - global, s - dotall (для многострочных формул)
   
-  matches.forEach((match, index) => {
-    const matchIndex = text.indexOf(match, lastIndex);
-    
+  let lastIndex = 0;
+  let match;
+  
+  // Сбрасываем lastIndex для нового поиска
+  regex.lastIndex = 0;
+  
+  while ((match = regex.exec(text)) !== null) {
     // Добавляем текст перед формулой
-    if (matchIndex > lastIndex) {
-      parts.push(<span key={`text-${index}`}>{text.substring(lastIndex, matchIndex)}</span>);
+    if (match.index > lastIndex) {
+      parts.push(
+        <span key={`text-${lastIndex}`}>
+          {text.substring(lastIndex, match.index)}
+        </span>
+      );
     }
     
     // Добавляем формулу
     parts.push(
       <MathExpression 
-        key={`math-${index}`} 
-        expression={match} 
+        key={`math-${match.index}`} 
+        expression={match[0]} 
         displayMode={false}
       />
     );
     
-    lastIndex = matchIndex + match.length;
-  });
+    lastIndex = match.index + match[0].length;
+  }
   
   // Добавляем оставшийся текст
   if (lastIndex < text.length) {
-    parts.push(<span key={`text-end`}>{text.substring(lastIndex)}</span>);
+    parts.push(
+      <span key={`text-end`}>
+        {text.substring(lastIndex)}
+      </span>
+    );
+  }
+  
+  // Если не найдено формул, возвращаем текст как есть
+  if (parts.length === 0) {
+    return <span>{text}</span>;
   }
   
   return <>{parts}</>;
