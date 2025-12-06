@@ -30,43 +30,66 @@ import type { ActiveTest } from "@/lib/offline-db";
 import React from 'react';
 import MathExpression from "@/components/MathExpression";
 
+import MathExpression from "@/components/MathExpression";
+
 const containsMath = (text: string): boolean => {
   if (!text) return false;
-  // Ищем \( или \\( в тексте
   return /\\\(|\\\\\(/.test(text);
 };
 
-// Компонент для отображения текста со встроенными формулами
+// Функция для преобразования обычного текста с математическими символами
+const processPlainText = (text: string): React.ReactNode => {
+  if (!text) return null;
+  
+  // Заменяем векторы a⃗ на \vec{a}
+  let processed = text.replace(/([a-zA-Z])\u20D7/g, '\\vec{$1}');
+  
+  // Заменяем степени: x^2 -> x^{2} или x^y -> x^{y}
+  // Но осторожно: не трогаем то, что уже в фигурных скобках
+  processed = processed.replace(/([a-zA-Zа-яА-Я0-9])\^([a-zA-Zа-яА-Я0-9]+(?![^{]*\}))/g, '$1^{$2}');
+  
+  // Если после преобразований есть LaTeX команды, рендерим как формулу
+  if (processed.includes('\\vec') || processed.includes('^{')) {
+    // Обернем в \( \) для рендеринга
+    return <MathExpression expression={`\\(${processed}\\)`} displayMode={false} />;
+  }
+  
+  // Иначе возвращаем обычный текст
+  return <span>{text}</span>;
+};
+
 // Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
+  
+  console.log('Исходный текст:', text); // Для отладки
   
   // Если весь текст - это формула в формате \\(...\\), обрабатываем целиком
   if (text.trim().startsWith('\\(') && text.trim().endsWith('\\)')) {
     return <MathExpression expression={text} displayMode={false} />;
   }
   
-  // Иначе ищем формулы внутри текста
+  // Ищем формулы внутри текста
   const parts: React.ReactNode[] = [];
-  const regex = /(\\\(.*?\\\))/gs; // g - global, s - dotall (для многострочных формул)
+  const regex = /(\\\(.*?\\\))/gs;
   
   let lastIndex = 0;
   let match;
   
-  // Сбрасываем lastIndex для нового поиска
   regex.lastIndex = 0;
   
   while ((match = regex.exec(text)) !== null) {
-    // Добавляем текст перед формулой
+    // Текст перед формулой
     if (match.index > lastIndex) {
+      const plainText = text.substring(lastIndex, match.index);
       parts.push(
         <span key={`text-${lastIndex}`}>
-          {text.substring(lastIndex, match.index)}
+          {processPlainText(plainText)}
         </span>
       );
     }
     
-    // Добавляем формулу
+    // Формула
     parts.push(
       <MathExpression 
         key={`math-${match.index}`} 
@@ -78,18 +101,19 @@ const TextWithMath = ({ text }: { text: string }) => {
     lastIndex = match.index + match[0].length;
   }
   
-  // Добавляем оставшийся текст
+  // Остаток текста
   if (lastIndex < text.length) {
+    const plainText = text.substring(lastIndex);
     parts.push(
       <span key={`text-end`}>
-        {text.substring(lastIndex)}
+        {processPlainText(plainText)}
       </span>
     );
   }
   
-  // Если не найдено формул, возвращаем текст как есть
+  // Если не найдено формул, обрабатываем весь текст
   if (parts.length === 0) {
-    return <span>{text}</span>;
+    return processPlainText(text);
   }
   
   return <>{parts}</>;
