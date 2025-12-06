@@ -30,114 +30,86 @@ import type { ActiveTest } from "@/lib/offline-db";
 import React from 'react';
 import MathExpression from "@/components/MathExpression";
 
-const containsMath = (text: string): boolean => {
-  if (!text) return false;
-  return /\\\(|\\\\\(/.test(text);
-};
-
 // Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
   
-  // Функция для безопасного преобразования только обычного текста (не внутри формул)
-  const processTextWithFormulas = (input: string): React.ReactNode[] => {
-    const parts: React.ReactNode[] = [];
-    let currentIndex = 0;
-    let inFormula = false;
-    let formulaStart = -1;
-    
-    for (let i = 0; i < input.length; i++) {
-      // Проверяем начало формулы \(
-      if (i + 1 < input.length && input[i] === '\\' && input[i + 1] === '(') {
-        if (!inFormula) {
-          // Сохраняем текст перед формулой (если есть)
-          if (i > currentIndex) {
-            const plainText = input.substring(currentIndex, i);
-            parts.push(processPlainText(plainText, parts.length));
-          }
-          formulaStart = i;
-          inFormula = true;
-          i++; // Пропускаем '('
-        }
-      }
-      // Проверяем конец формулы \)
-      else if (inFormula && i + 1 < input.length && input[i] === '\\' && input[i + 1] === ')') {
-        // Извлекаем формулу
-        const formula = input.substring(formulaStart, i + 2);
-        parts.push(
-          <MathExpression 
-            key={`math-${parts.length}`} 
-            expression={formula} 
-            displayMode={false}
-          />
-        );
-        
-        currentIndex = i + 2;
-        inFormula = false;
-        i++; // Пропускаем ')'
-      }
-    }
-    
-    // Добавляем оставшийся текст после последней формулы
-    if (currentIndex < input.length) {
-      const plainText = input.substring(currentIndex);
-      parts.push(processPlainText(plainText, parts.length));
-    }
-    
-    return parts;
-  };
+  // Просто разделяем на формулы и обычный текст
+  const parts: React.ReactNode[] = [];
   
-  // Функция для обработки обычного текста (не формул)
-  const processPlainText = (plainText: string, key: number): React.ReactNode => {
-    if (!plainText) return null;
-    
-    // Преобразуем векторы и степени только в обычном тексте
-    let processed = plainText;
-    let hasVectorOrPower = false;
-    
-    // Заменяем векторы a⃗ на \vec{a}
-    if (plainText.includes('\u20D7')) {
-      hasVectorOrPower = true;
-      processed = processed.replace(/([a-zA-Z])\u20D7/g, '\\vec{$1}');
+  // Ищем все формулы \\(...\\)
+  let lastIndex = 0;
+  let start = -1;
+  
+  for (let i = 0; i < text.length; i++) {
+    // Начало формулы
+    if (text[i] === '\\' && i + 1 < text.length && text[i + 1] === '(') {
+      start = i;
+      i++; // Пропускаем '('
     }
-    
-    // Заменяем степени: x^2 -> x^{2}
-    // Но только если это не часть уже существующей формулы
-    if (plainText.includes('^') && !plainText.includes('\\(')) {
-      // Более безопасная замена степеней
-      processed = processed.replace(/([a-zA-Z0-9])\^(\d+)/g, (match, base, power) => {
-        hasVectorOrPower = true;
-        return `${base}^{${power}}`;
-      });
-    }
-    
-    // Если были преобразования, рендерим как формулу
-    if (hasVectorOrPower) {
-      // Нужно экранировать обратные слеши для корректной передачи
-      const escapedFormula = processed.replace(/\\/g, '\\\\');
-      return (
+    // Конец формулы  
+    else if (start !== -1 && text[i] === '\\' && i + 1 < text.length && text[i + 1] === ')') {
+      // Текст перед формулой
+      if (start > lastIndex) {
+        const plainText = text.substring(lastIndex, start);
+        parts.push(renderPlainText(plainText, parts.length));
+      }
+      
+      // Формула
+      const formula = text.substring(start, i + 2);
+      parts.push(
         <MathExpression 
-          key={`processed-${key}`} 
-          expression={`\\(${escapedFormula}\\)`} 
+          key={`math-${parts.length}`}
+          expression={formula}
           displayMode={false}
         />
       );
+      
+      lastIndex = i + 2;
+      start = -1;
+      i++; // Пропускаем ')'
     }
-    
-    // Иначе возвращаем обычный текст
-    return <span key={`text-${key}`}>{plainText}</span>;
-  };
+  }
   
-  // Основная логика обработки
-  const parts = processTextWithFormulas(text);
+  // Остаток текста после всех формул
+  if (lastIndex < text.length) {
+    const plainText = text.substring(lastIndex);
+    parts.push(renderPlainText(plainText, parts.length));
+  }
   
+  // Если не было формул - обрабатываем весь текст
   if (parts.length === 0) {
-    return <span>{text}</span>;
+    return renderPlainText(text, 0);
   }
   
   return <>{parts}</>;
 };
 
+// Функция для рендеринга обычного текста (не формул)
+const renderPlainText = (plainText: string, key: number): React.ReactNode => {
+  if (!plainText) return null;
+  
+  // Если есть векторы или степени - преобразуем их
+  if (plainText.includes('\u20D7') || /[a-zA-Z0-9]\^\d+/.test(plainText)) {
+    // Для векторов: a⃗ → \vec{a}
+    // Для степеней: x^2 → x^{2}
+    let latex = plainText
+      .replace(/([a-zA-Z])\u20D7/g, '\\vec{$1}')
+      .replace(/([a-zA-Z0-9])\^(\d+)/g, '$1^{$2}');
+    
+    // Обернем в \( \) для рендеринга
+    return (
+      <MathExpression 
+        key={`plain-math-${key}`}
+        expression={`\\(${latex}\\)`}
+        displayMode={false}
+      />
+    );
+  }
+  
+  // Обычный текст без математики
+  return <span key={`plain-${key}`}>{plainText}</span>;
+};
 interface TestQuestion {
   id: string;
   text: string;
