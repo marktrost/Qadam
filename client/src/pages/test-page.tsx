@@ -30,135 +30,50 @@ import type { ActiveTest } from "@/lib/offline-db";
 import React from 'react';
 import MathExpression from "@/components/MathExpression";
 
-// Компонент для отображения текста со встроенными формулами
 const TextWithMath = ({ text }: { text: string }) => {
   if (!text) return null;
-  
-  console.log('DEBUG TextWithMath вход:', text);
-  
-  // Ищем формулы \(...\) или \\\(...\\\)
+
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  
-  // Ищем начало формулы
-  while (lastIndex < text.length) {
-    // Ищем \( или \\\(
-    const start1 = text.indexOf('\\\\(', lastIndex);
-    const start2 = text.indexOf('\\(', lastIndex);
-    const start = start1 !== -1 ? start1 : start2;
-    
-    if (start === -1) {
-      // Нет больше формул
-      const remaining = text.substring(lastIndex);
-      if (remaining) {
-        parts.push(renderPlainText(remaining, parts.length));
-      }
-      break;
-    }
-    
-    // Текст перед формулой
+
+  const regex = /\\\((.+?)\\\)/g;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    const start = match.index;
+    const end = regex.lastIndex;
+
     if (start > lastIndex) {
-      const before = text.substring(lastIndex, start);
-      parts.push(renderPlainText(before, parts.length));
+      parts.push(
+        <span key={lastIndex} style={{ whiteSpace: "pre-wrap" }}>
+          {text.slice(lastIndex, start)}
+        </span>
+      );
     }
-    
-    // Ищем конец формулы
-    let end = -1;
-    const startStr = text.substr(start, 3) === '\\\\(' ? '\\\\(' : '\\(';
-    const endStr = startStr === '\\\\(' ? '\\\\)' : '\\)';
-    
-    for (let i = start + startStr.length; i < text.length; i++) {
-      if (text.substr(i, endStr.length) === endStr) {
-        end = i + endStr.length;
-        break;
-      }
-    }
-    
-    if (end === -1) {
-      end = text.length;
-    }
-    
-    // Формула
-    const formula = text.substring(start, end);
-    console.log('DEBUG Формула найдена:', formula);
-    
+
     parts.push(
-      <MathExpression 
-        key={`math-${parts.length}`}
-        expression={formula}
+      <MathExpression
+        key={start}
+        expression={`\\(${match[1]}\\)`}
         displayMode={false}
       />
     );
-    
+
     lastIndex = end;
   }
-  
-  // Если не нашли формул
-  if (parts.length === 0) {
-    return renderPlainText(text, 0);
+
+  if (lastIndex < text.length) {
+    parts.push(
+      <span key={lastIndex} style={{ whiteSpace: "pre-wrap" }}>
+        {text.slice(lastIndex)}
+      </span>
+    );
   }
-  
+
   return <>{parts}</>;
 };
 
-// Функция для рендеринга обычного текста
-const renderPlainText = (plainText: string, key: number): React.ReactNode => {
-  if (!plainText) return null;
-  
-  console.log('DEBUG renderPlainText:', plainText);
-  
-  // Проверяем на векторы и степени
-  const hasVector = plainText.includes('\u20D7');
-  const hasPower = /[a-zA-Z0-9]\^\d+/.test(plainText);
-  
-  if (hasVector || hasPower) {
-    let latex = plainText;
-    
-    if (hasVector) {
-      latex = latex.replace(/([a-zA-Z])\u20D7/g, '\\vec{$1}');
-    }
-    
-    if (hasPower) {
-      latex = latex.replace(/([a-zA-Z0-9])\^(\d+)/g, '$1^{$2}');
-    }
-    
-    return (
-      <MathExpression 
-        key={`plain-math-${key}`}
-        expression={`\\(${latex}\\)`}
-        displayMode={false}
-      />
-    );
-  }
-  
-  // Обычный текст - сохраняем пробелы!
-  return <span key={`plain-${key}`} style={{ whiteSpace: 'pre-wrap' }}>{plainText}</span>;
-};
 
-interface TestQuestion {
-  id: string;
-  text: string;
-  imageUrl?: string;
-  solutionImageUrl?: string;
-  answers: {
-    id: string;
-    text: string;
-    isCorrect: boolean;
-  }[];
-}
-
-interface TestSubject {
-  subject: {
-    id: string;
-    name: string;
-  };
-  questions: TestQuestion[];
-}
-
-interface TestData {
-  variant: Variant & { block: Block };
-  testData: TestSubject[];
-}
 
 export default function TestPage() {
   const [match, params] = useRoute("/test/:variantId");
