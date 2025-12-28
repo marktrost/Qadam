@@ -35,7 +35,6 @@ const TextWithMath = ({ text }: { text: string }) => {
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-
   const regex = /\\\((.+?)\\\)/g;
   let match;
 
@@ -72,6 +71,7 @@ const TextWithMath = ({ text }: { text: string }) => {
 
   return <>{parts}</>;
 };
+
 
 
 
