@@ -624,6 +624,27 @@ function SubjectsView({ variant, onSelectSubject }: SubjectsViewProps) {
       });
     },
   });
+  
+  const normalizeMathText = (text: string) => {
+    if (!text) return text;
+  
+    return text
+      // степени
+      .replace(/\^/g, "^{ }")
+  
+      // корни
+      .replace(/√\s*\(?([^)]+)\)?/g, "\\\\sqrt{$1}")
+  
+      // дроби вида a/b
+      .replace(/(\d+)\s*\/\s*(\d+)/g, "\\\\frac{$1}{$2}")
+  
+      // векторы
+      .replace(/⃗([a-zA-Z])/g, "\\\\vec{$1}")
+  
+      // убрать лишние пробелы
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  };
 
   const handleBulkImport = async () => {
     try {
@@ -631,16 +652,27 @@ function SubjectsView({ variant, onSelectSubject }: SubjectsViewProps) {
         toast({ title: "Ошибка", description: "Введите JSON данные", variant: "destructive" });
         return;
       }
-
-      const bulkData = JSON.parse(bulkImportJson);
-      
-      // Basic validation
-      if (!bulkData.name || !Array.isArray(bulkData.questions)) {
+  
+      const rawData = JSON.parse(bulkImportJson);
+  
+      if (!rawData.name || !Array.isArray(rawData.questions)) {
         toast({ title: "Ошибка", description: "Неверная структура JSON", variant: "destructive" });
         return;
       }
-
-      bulkImportMutation.mutate(bulkData);
+  
+      const normalizedData = {
+        ...rawData,
+        questions: rawData.questions.map((q: any) => ({
+          ...q,
+          text: normalizeMathText(q.text),
+          answers: q.answers.map((a: any) => ({
+            ...a,
+            text: normalizeMathText(a.text),
+          })),
+        })),
+      };
+  
+      bulkImportMutation.mutate(normalizedData);
     } catch (error) {
       toast({ title: "Ошибка", description: "Неверный JSON формат", variant: "destructive" });
     }
