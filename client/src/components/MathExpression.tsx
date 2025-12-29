@@ -24,8 +24,17 @@ export default function MathExpression({
   }, [expression]);
 
   return (
-    <span ref={ref} className={className}>
+    <span
+      ref={ref}
+      className={className}
+      style={{
+        display: "inline-block",
+        whiteSpace: "nowrap",
+        verticalAlign: "middle",
+      }}
+    >
       {expression}
     </span>
+
   );
 }
