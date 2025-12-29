@@ -435,3 +435,8 @@ sup {
     print-color-adjust: exact;
   }
 }
+/* === FIX: MathJax inline formulas === */
+mjx-container {
+  display: inline !important;
+  vertical-align: middle;
+}
