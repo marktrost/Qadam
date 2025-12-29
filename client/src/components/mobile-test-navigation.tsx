@@ -80,30 +80,31 @@ export default function MobileTestNavigation({
       y: e.targetTouches[0].clientY
     });
   };
-
+  
   const handleTouchEnd = () => {
     if (!touchStart || !touchEnd) return;
-
-    const distanceX = touchStart.x - touchEnd.x;
-    const distanceY = touchStart.y - touchEnd.y;
-    const isLeftSwipe = distanceX > 50;
-    const isRightSwipe = distanceX < -50;
-    const isVerticalSwipe = Math.abs(distanceY) > Math.abs(distanceX);
-
+  
+    const dx = touchStart.x - touchEnd.x;
+    const dy = touchStart.y - touchEnd.y;
+  
+    // 👇 это ТАП, а не свайп
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      return;
+    }
+  
+    const isLeftSwipe = dx > 50;
+    const isRightSwipe = dx < -50;
+    const isVerticalSwipe = Math.abs(dy) > Math.abs(dx);
+  
     if (!isVerticalSwipe) {
       if (isLeftSwipe && currentIndex < questions.length - 1) {
         onQuestionChange(currentIndex + 1);
-        if ('vibrate' in navigator) {
-          navigator.vibrate(50);
-        }
       } else if (isRightSwipe && currentIndex > 0) {
         onQuestionChange(currentIndex - 1);
-        if ('vibrate' in navigator) {
-          navigator.vibrate(50);
-        }
       }
     }
   };
+
 
   const getQuestionNumberInSubject = (globalIndex: number) => {
     let questionCount = 0;
@@ -172,13 +173,21 @@ export default function MobileTestNavigation({
                   </span>
                 </div>
                 <Button
-                  onClick={() => onShowSubmitDialog ? onShowSubmitDialog() : setShowSubmitDialog(true)}
-                  disabled={isSubmitting}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onTouchEnd={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowSubmitDialog(true);
+                  }}
                   className="bg-red-500 hover:bg-red-600 h-7 px-2 text-xs relative z-10"
                 >
-                  <i className="fas fa-flag-checkered mr-1"></i>
                   Завершить
                 </Button>
+
               </div>
             )}
           </div>
